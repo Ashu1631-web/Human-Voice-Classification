@@ -4,4 +4,4 @@ numpy
 librosa
 scikit-learn
 plotly
-joblib
+soundfile
