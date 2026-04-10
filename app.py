@@ -3,101 +3,57 @@ import numpy as np
 import pandas as pd
 import pickle
 import librosa
+import librosa.display
+import matplotlib.pyplot as plt
 import plotly.express as px
 from sklearn.metrics import accuracy_score, confusion_matrix
 
-# =========================
-# CONFIG
-# =========================
+# ================= CONFIG =================
 st.set_page_config(page_title="Voice AI Pro", layout="wide")
 
-# =========================
-# PREMIUM UI (GLASS + BG)
-# =========================
+# ================= UI =================
 st.markdown("""
 <style>
 .stApp {
     background-image: url("https://images.unsplash.com/photo-1511376777868-611b54f68947");
     background-size: cover;
-    background-attachment: fixed;
 }
 .glass {
     background: rgba(0,0,0,0.7);
     padding: 20px;
     border-radius: 15px;
-    backdrop-filter: blur(10px);
 }
-h1, h2, h3 {
-    color: #00eaff;
-    text-align: center;
-}
+h1 { color:#00eaff; text-align:center;}
 .stButton>button {
     background: linear-gradient(90deg,#00eaff,#0072ff);
-    color: white;
-    border-radius: 10px;
+    color:white;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# SESSION
-# =========================
+# ================= LOGIN =================
 if "login" not in st.session_state:
     st.session_state.login = False
 
-# =========================
-# LOGIN
-# =========================
 def login():
-    st.markdown("<h1>🎙️ Voice AI Login</h1>", unsafe_allow_html=True)
+    st.title("🎙️ Voice AI Login")
+    user = st.text_input("Username")
+    pwd = st.text_input("Password", type="password")
 
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        st.markdown("<div class='glass'>", unsafe_allow_html=True)
+    if st.button("Login"):
+        if (user=="admin" and pwd=="admin123") or (user=="user" and pwd=="user123"):
+            st.session_state.login=True
+        else:
+            st.error("Invalid credentials")
 
-        user = st.text_input("Username")
-        pwd = st.text_input("Password", type="password")
-
-        if st.button("Login"):
-            if user == "admin" and pwd == "admin123":
-                st.session_state.login = True
-                st.success("Admin Login Success")
-            elif user == "user" and pwd == "user123":
-                st.session_state.login = True
-                st.success("User Login Success")
-            else:
-                st.error("Invalid credentials")
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-def logout():
-    st.session_state.login = False
-
-# =========================
-# LOAD DATASET (REAL)
-# =========================
+# ================= DATA =================
 @st.cache_data
 def load_data():
-    try:
-        df = pd.read_csv("data/vocal_gender_features_new.csv")
+    df = pd.read_csv("data/vocal_gender_features_new.csv")
+    df = df.select_dtypes(include=np.number)
+    return df
 
-        # Ensure label exists
-        if "label" not in df.columns:
-            if "gender" in df.columns:
-                df.rename(columns={"gender": "label"}, inplace=True)
-
-        # Keep numeric only
-        df = df.select_dtypes(include=np.number)
-
-        return df
-
-    except Exception as e:
-        st.error(f"Dataset error: {e}")
-        st.stop()
-
-# =========================
-# FEATURE EXTRACTION
-# =========================
+# ================= FEATURES =================
 def extract_features(file):
     y, sr = librosa.load(file, sr=None)
 
@@ -110,174 +66,113 @@ def extract_features(file):
     ]
 
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=10)
-    for i in range(10):
-        features.append(np.mean(mfcc[i]))
+    for m in mfcc:
+        features.append(np.mean(m))
 
     return np.array(features).reshape(1, -1)
 
-# =========================
-# LOAD MODELS
-# =========================
+# ================= SPECTROGRAM =================
+def plot_spectrogram(file):
+    y, sr = librosa.load(file, sr=None)
+    S = librosa.feature.melspectrogram(y=y, sr=sr)
+    S_db = librosa.power_to_db(S)
+
+    fig, ax = plt.subplots()
+    librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='mel', ax=ax)
+    st.pyplot(fig)
+
+# ================= MODELS =================
 def load_model(path):
     try:
-        return pickle.load(open(path, "rb"))
+        return pickle.load(open(path,"rb"))
     except:
         return None
 
-classifier = load_model("models/classifier.pkl")
+clf = load_model("models/classifier.pkl")
 kmeans = load_model("models/kmeans.pkl")
 scaler = load_model("models/scaler.pkl")
 
-# =========================
-# MAIN
-# =========================
+# ================= MAIN =================
 if not st.session_state.login:
     login()
 
 else:
-    st.sidebar.title("🎙️ Voice AI Pro")
-
-    menu = st.sidebar.radio("Navigation", [
-        "Overview",
-        "Audio Prediction",
-        "EDA Dashboard",
-        "Model Dashboard",
-        "Retrain Model"
+    menu = st.sidebar.radio("Menu", [
+        "Overview","Audio","EDA","Model","Retrain"
     ])
 
-    if st.sidebar.button("Logout"):
-        logout()
-
-    # =========================
-    # OVERVIEW
-    # =========================
-    if menu == "Overview":
-
+    # ---------- OVERVIEW ----------
+    if menu=="Overview":
         st.markdown("<div class='glass'>", unsafe_allow_html=True)
+        st.title("📌 Voice AI System")
 
-        st.title("📌 Project Overview")
         st.write("""
-        This system classifies and clusters human voice using machine learning.
-        It supports real-time audio analysis and dynamic model retraining.
+        ML system for voice classification & clustering.
+        Includes audio processing, visualization, and retraining.
         """)
-
-        df = load_data()
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Rows", df.shape[0])
-        col2.metric("Features", df.shape[1])
-        col3.metric("Models", "RF + KMeans")
-
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # =========================
-    # AUDIO
-    # =========================
-    elif menu == "Audio Prediction":
-
-        st.markdown("<div class='glass'>", unsafe_allow_html=True)
-
-        st.title("🎤 Audio Prediction")
-
-        file = st.file_uploader("Upload WAV file", type=["wav"])
+    # ---------- AUDIO ----------
+    elif menu=="Audio":
+        file = st.file_uploader("Upload WAV", type=["wav"])
 
         if file:
             st.audio(file)
+            plot_spectrogram(file)
 
-            if st.button("Analyze Voice"):
-                features = extract_features(file)
+            if st.button("Analyze"):
+                f = extract_features(file)
+                if scaler: f = scaler.transform(f)
 
-                if scaler:
-                    features = scaler.transform(features)
+                pred = clf.predict(f)[0] if clf else 0
+                cluster = kmeans.predict(f)[0] if kmeans else 0
 
-                pred = classifier.predict(features)[0] if classifier else 0
-                cluster = kmeans.predict(features)[0] if kmeans else 0
-
-                st.success(f"Prediction: {'Male' if pred else 'Female'}")
+                st.success(f"Gender: {'Male' if pred else 'Female'}")
                 st.info(f"Cluster: {cluster}")
 
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # =========================
-    # EDA
-    # =========================
-    elif menu == "EDA Dashboard":
-
-        st.title("📊 Real Dataset Dashboard")
-
+    # ---------- EDA ----------
+    elif menu=="EDA":
         df = load_data()
 
         st.dataframe(df.head())
 
-        cols = df.columns.tolist()
+        col = st.selectbox("Feature", df.columns)
 
-        feature = st.selectbox("Select Feature", cols)
-
-        st.plotly_chart(px.histogram(df, x=feature))
-        st.plotly_chart(px.box(df, y=feature))
-
-        if "label" in df.columns:
-            st.plotly_chart(px.scatter(df, x=cols[0], y=cols[1], color="label"))
-            st.plotly_chart(px.pie(df, names="label"))
-
+        st.plotly_chart(px.histogram(df, x=col))
+        st.plotly_chart(px.box(df, y=col))
         st.plotly_chart(px.imshow(df.corr()))
 
-    # =========================
-    # MODEL DASHBOARD
-    # =========================
-    elif menu == "Model Dashboard":
+    # ---------- MODEL ----------
+    elif menu=="Model":
+        y_true = np.random.randint(0,2,100)
+        y_pred = np.random.randint(0,2,100)
 
-        st.title("📈 Model Performance")
+        st.metric("Accuracy", f"{accuracy_score(y_true,y_pred)*100:.2f}%")
+        st.plotly_chart(px.imshow(confusion_matrix(y_true,y_pred)))
 
-        y_true = np.random.randint(0, 2, 100)
-        y_pred = np.random.randint(0, 2, 100)
-
-        acc = accuracy_score(y_true, y_pred)
-        st.metric("Accuracy", f"{acc*100:.2f}%")
-
-        cm = confusion_matrix(y_true, y_pred)
-        st.plotly_chart(px.imshow(cm, text_auto=True))
-
-    # =========================
-    # RETRAIN
-    # =========================
-    elif menu == "Retrain Model":
-
-        st.title("📁 Retrain Model")
-
+    # ---------- RETRAIN ----------
+    elif menu=="Retrain":
         file = st.file_uploader("Upload CSV")
 
         if file:
             df = pd.read_csv(file)
+            X = df.drop("label",axis=1)
+            y = df["label"]
 
-            st.dataframe(df.head())
+            from sklearn.model_selection import train_test_split
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.preprocessing import StandardScaler
 
-            if "label" not in df.columns:
-                st.error("Dataset must have 'label'")
-            else:
-                from sklearn.model_selection import train_test_split
-                from sklearn.ensemble import RandomForestClassifier
+            scaler = StandardScaler()
+            X = scaler.fit_transform(X)
 
-                X = df.drop("label", axis=1)
-                y = df["label"]
+            X_train,X_test,y_train,y_test = train_test_split(X,y)
 
-                X_train, X_test, y_train, y_test = train_test_split(X, y)
+            model = RandomForestClassifier(n_estimators=200)
+            model.fit(X_train,y_train)
 
-                model = RandomForestClassifier()
-                model.fit(X_train, y_train)
+            acc = accuracy_score(y_test, model.predict(X_test))
+            st.success(f"Accuracy: {acc*100:.2f}%")
 
-                pred = model.predict(X_test)
-                acc = accuracy_score(y_test, pred)
-
-                st.success(f"Accuracy: {acc*100:.2f}%")
-
-                pickle.dump(model, open("models/classifier.pkl", "wb"))
-                st.info("Model Updated ✅")
-
-# =========================
-# FOOTER
-# =========================
-st.markdown("""
----
-<center style='color:#00eaff;'>🚀 Voice AI Pro - Final Production App</center>
-""", unsafe_allow_html=True)
+            pickle.dump(model, open("models/classifier.pkl","wb"))
+            pickle.dump(scaler, open("models/scaler.pkl","wb"))
