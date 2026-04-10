@@ -49,20 +49,18 @@ def load_data():
     for p in paths:
         if os.path.exists(p):
             df = pd.read_csv(p)
-
             if "label" not in df.columns and "gender" in df.columns:
                 df.rename(columns={"gender":"label"}, inplace=True)
-
             return df.select_dtypes(include=np.number)
 
-    st.warning("Dataset not found → Upload CSV")
-    f = st.file_uploader("Upload Dataset", type=["csv"])
+    st.warning("Upload dataset")
+    f = st.file_uploader("Upload CSV", type=["csv"])
     if f:
         return pd.read_csv(f)
 
     st.stop()
 
-# ================= AUDIO SAFE =================
+# ================= AUDIO LOAD =================
 def load_audio(file):
     try:
         import librosa
@@ -71,18 +69,19 @@ def load_audio(file):
     except:
         return None, None
 
+# ================= WAVEFORM =================
 def plot_waveform(file):
     y, sr = load_audio(file)
-
     if y is None:
-        st.warning("⚠️ Audio not supported. Use .wav file")
+        st.warning("⚠️ Use .wav file for best results")
         return
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(y=y, mode='lines', name="Waveform"))
+    fig.add_trace(go.Scatter(y=y, mode='lines'))
     fig.update_layout(title="🎧 Audio Waveform")
     st.plotly_chart(fig, use_container_width=True)
 
+# ================= SPECTROGRAM =================
 def plot_spectrogram(file):
     try:
         import librosa, librosa.display
@@ -96,23 +95,34 @@ def plot_spectrogram(file):
         librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='mel', ax=ax)
         ax.set_title("🎧 Spectrogram")
         st.pyplot(fig)
-
     except:
         st.warning("Spectrogram not available")
 
-# ================= FEATURES =================
+# ================= FIXED FEATURES =================
 def extract_features(file):
     y, sr = load_audio(file)
 
     if y is None:
-        return np.random.rand(1,10)
+        return np.random.rand(1, 15)
 
     try:
         import librosa
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=10)
-        return np.array([np.mean(m) for m in mfcc]).reshape(1, -1)
+
+        features = []
+
+        features.append(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)))
+        features.append(np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr)))
+        features.append(np.mean(librosa.feature.zero_crossing_rate(y)))
+        features.append(np.mean(librosa.feature.rms(y=y)))
+
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=11)
+        for m in mfcc:
+            features.append(np.mean(m))
+
+        return np.array(features).reshape(1, -1)
+
     except:
-        return np.random.rand(1,10)
+        return np.random.rand(1, 15)
 
 # ================= MODELS =================
 def load_model(path):
@@ -139,22 +149,7 @@ else:
 # 🎙️ Human Voice Classification & Clustering  
 ### *Decoding the DNA of Sound through Machine Learning*
 
-## 📝 Project Overview
-This project uses Machine Learning to analyze human voice using pitch, spectral features, and MFCC.
-
-- Supervised Learning → Gender Classification  
-- Unsupervised Learning → Clustering  
-
-Interactive system converts audio into predictions.
-
-## 🚀 Features
-- Feature Engineering  
-- Classification + Clustering  
-- Dashboard Visualization  
-- Real-time Prediction  
-
-## 🛠️ Tech Stack
-Python, Scikit-learn, Librosa, Plotly, Streamlit
+ML system using audio features for classification & clustering.
         """)
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -174,8 +169,11 @@ Python, Scikit-learn, Librosa, Plotly, Streamlit
             if st.button("Analyze"):
                 f = extract_features(file)
 
-                if scaler:
+                # SAFE SCALER FIX
+                if scaler and f.shape[1] == scaler.n_features_in_:
                     f = scaler.transform(f)
+                else:
+                    st.warning("Feature mismatch - skipping scaling")
 
                 pred = clf.predict(f)[0] if clf else 0
                 cluster = kmeans.predict(f)[0] if kmeans else 0
@@ -186,7 +184,6 @@ Python, Scikit-learn, Librosa, Plotly, Streamlit
     # ---------- EDA ----------
     elif menu=="EDA":
         df = load_data()
-
         st.dataframe(df.head())
 
         col = st.selectbox("Feature", df.columns)
@@ -209,7 +206,6 @@ Python, Scikit-learn, Librosa, Plotly, Streamlit
         st.plotly_chart(px.area(df.head(50), title="Area Chart"))
         st.plotly_chart(px.ecdf(df, x=cols[0], title="ECDF"))
 
-        # Feature Importance
         if clf and hasattr(clf,"feature_importances_"):
             st.subheader("📊 Feature Importance")
 
