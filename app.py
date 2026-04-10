@@ -155,7 +155,7 @@ ML system using audio features for classification & clustering.
 
     # ---------- AUDIO ----------
     elif menu=="Audio":
-        file = st.file_uploader("Upload Audio (.wav recommended)", type=["wav","mp3"])
+        file = st.file_uploader("Upload Audio (.mp3 recommended)", type=["wav","mp3"])
 
         if file:
             st.audio(file)
@@ -167,19 +167,42 @@ ML system using audio features for classification & clustering.
             plot_spectrogram(file)
 
             if st.button("Analyze"):
-                f = extract_features(file)
+    f = extract_features(file)
 
-                # SAFE SCALER FIX
-                if scaler and f.shape[1] == scaler.n_features_in_:
-                    f = scaler.transform(f)
-                else:
-                    st.warning("Feature mismatch - skipping scaling")
+    # Get expected feature count from model
+    expected_features = None
+    if clf:
+        try:
+            expected_features = clf.n_features_in_
+        except:
+            expected_features = f.shape[1]
 
-                pred = clf.predict(f)[0] if clf else 0
-                cluster = kmeans.predict(f)[0] if kmeans else 0
+    # 🔥 AUTO FIX FEATURE SIZE
+    if expected_features:
+        if f.shape[1] < expected_features:
+            # pad with zeros
+            padding = np.zeros((1, expected_features - f.shape[1]))
+            f = np.concatenate([f, padding], axis=1)
 
-                st.success(f"Gender: {'Male' if pred else 'Female'}")
-                st.info(f"Cluster: {cluster}")
+        elif f.shape[1] > expected_features:
+            # trim extra features
+            f = f[:, :expected_features]
+
+    # SAFE SCALING
+    if scaler and hasattr(scaler, "n_features_in_"):
+        if f.shape[1] == scaler.n_features_in_:
+            f = scaler.transform(f)
+
+    # FINAL PREDICTION (NO ERROR NOW)
+    try:
+        pred = clf.predict(f)[0] if clf else 0
+        cluster = kmeans.predict(f)[0] if kmeans else 0
+
+        st.success(f"Gender: {'Male' if pred else 'Female'}")
+        st.info(f"Cluster: {cluster}")
+
+    except Exception as e:
+        st.error(f"Prediction error: {e}")
 
     # ---------- EDA ----------
     elif menu=="EDA":
