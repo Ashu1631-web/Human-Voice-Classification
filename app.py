@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import pickle
 import plotly.express as px
-import plotly.graph_objects as go
 
 # ================= CONFIG =================
 st.set_page_config(page_title="Voice AI Pro", layout="wide")
@@ -59,51 +58,11 @@ def load_data():
 
     st.stop()
 
-# ================= AUDIO =================
-def load_audio(file):
-    try:
-        import librosa
-        y, sr = librosa.load(file, sr=None)
-        return y, sr
-    except:
-        return None, None
-
-def plot_waveform(file):
-    y, sr = load_audio(file)
-    if y is None:
-        st.warning("⚠️ Use .wav file")
-        return
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(y=y, mode='lines'))
-    fig.update_layout(title="🎧 Audio Waveform")
-    st.plotly_chart(fig, use_container_width=True)
-
-def plot_spectrogram(file):
-    try:
-        import librosa, librosa.display
-        import matplotlib.pyplot as plt
-
-        y, sr = librosa.load(file, sr=None)
-        S = librosa.feature.melspectrogram(y=y, sr=sr)
-        S_db = librosa.power_to_db(S)
-
-        fig, ax = plt.subplots()
-        librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='mel', ax=ax)
-        ax.set_title("🎧 Spectrogram")
-        st.pyplot(fig)
-
-    except:
-        st.warning("Spectrogram not available")
-
+# ================= AUDIO FEATURES =================
 def extract_features(file):
-    y, sr = load_audio(file)
-
-    if y is None:
-        return np.random.rand(1, 15)
-
     try:
         import librosa
+        y, sr = librosa.load(file, sr=None)
 
         features = []
         features.append(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)))
@@ -141,10 +100,58 @@ else:
     # ---------- OVERVIEW ----------
     if menu=="Overview":
         st.markdown("<div class='glass'>", unsafe_allow_html=True)
+
         st.markdown("""
 # 🎙️ Human Voice Classification & Clustering  
-### Decoding the DNA of Sound through Machine Learning
+### *Decoding the DNA of Sound through Machine Learning*
+
+## 📝 Project Overview
+This project focuses on analyzing human voice using machine learning techniques.  
+It processes audio signals and converts them into meaningful numerical features such as spectral characteristics, pitch, and MFCC (Mel Frequency Cepstral Coefficients).
+
+The system combines:
+
+- **Supervised Learning** → Predict gender (Male/Female)  
+- **Unsupervised Learning** → Identify patterns via clustering  
+
+The final application is a **Streamlit-based interactive dashboard** where users can upload audio and instantly get predictions.
+
+---
+
+## 🚀 Key Features
+- Audio feature extraction using Librosa  
+- Voice classification using Random Forest  
+- Clustering using K-Means  
+- Interactive visualization dashboard  
+- Real-time prediction system  
+
+---
+
+## 📊 Workflow
+1. Upload audio file  
+2. Extract audio features  
+3. Apply ML model  
+4. Display prediction results  
+
+---
+
+## 🛠️ Tech Stack
+- Python  
+- Scikit-learn  
+- Librosa  
+- Plotly  
+- Streamlit  
+
+---
+
+## 💼 Use Cases
+- Call center voice analytics  
+- Gender detection systems  
+- Speech-based AI applications  
+- Audio pattern recognition  
+
         """)
+
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------- AUDIO ----------
@@ -154,22 +161,15 @@ else:
         if file:
             st.audio(file)
 
-            st.subheader("🎧 Waveform")
-            plot_waveform(file)
-
-            st.subheader("🎧 Spectrogram")
-            plot_spectrogram(file)
-
             if st.button("Analyze"):
                 f = extract_features(file)
 
-                # AUTO FIX FEATURE SIZE
+                # 🔥 AUTO FIX FEATURE SIZE
                 expected = clf.n_features_in_ if clf else f.shape[1]
 
                 if f.shape[1] < expected:
                     pad = np.zeros((1, expected - f.shape[1]))
                     f = np.concatenate([f, pad], axis=1)
-
                 elif f.shape[1] > expected:
                     f = f[:, :expected]
 
@@ -182,8 +182,8 @@ else:
                     pred = clf.predict(f)[0] if clf else 0
                     cluster = kmeans.predict(f)[0] if kmeans else 0
 
-                    st.success(f"Gender: {'Male' if pred else 'Female'}")
-                    st.info(f"Cluster: {cluster}")
+                    st.success(f"🎯 Prediction: {'Male' if pred else 'Female'}")
+                    st.info(f"🔍 Cluster: {cluster}")
 
                 except Exception as e:
                     st.error(f"Prediction error: {e}")
@@ -193,7 +193,7 @@ else:
         df = load_data()
         st.dataframe(df.head())
 
-        col = st.selectbox("Feature", df.columns)
+        col = st.selectbox("Select Feature", df.columns)
 
         st.plotly_chart(px.histogram(df, x=col, title="Histogram"))
         st.plotly_chart(px.box(df, y=col, title="Box Plot"))
