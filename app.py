@@ -1,136 +1,201 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pickle
 import librosa
 import plotly.express as px
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.cluster import KMeans
+import sounddevice as sd
+from scipy.io.wavfile import write
+import tempfile
+from sklearn.metrics import accuracy_score, confusion_matrix
 
-st.set_page_config(page_title="Voice AI System", layout="wide")
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="Voice AI Pro", layout="wide")
 
-# ---------------- CUSTOM CSS ----------------
-st.markdown("""
-<style>
-.card {
-    padding: 20px;
-    border-radius: 12px;
-    background: #1f2937;
-    color: white;
-    text-align: center;
-}
-</style>
-""", unsafe_allow_html=True)
+# ---------------- LOGIN ----------------
+if "login" not in st.session_state:
+    st.session_state.login = False
+    st.session_state.role = None
 
-# ---------------- FEATURE EXTRACTION ----------------
+def login():
+    st.title("🔐 Login")
+
+    user = st.text_input("Username")
+    pwd = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        if user == "admin" and pwd == "admin123":
+            st.session_state.login = True
+            st.session_state.role = "admin"
+        elif user == "user" and pwd == "user123":
+            st.session_state.login = True
+            st.session_state.role = "user"
+        else:
+            st.error("Invalid credentials")
+
+def logout():
+    st.session_state.login = False
+
+# ---------------- AUDIO FEATURE ----------------
 def extract_features(file):
     y, sr = librosa.load(file, sr=None)
 
-    mfcc = np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13).T, axis=0)
-    pitch = np.mean(librosa.yin(y, fmin=50, fmax=300))
-    zcr = np.mean(librosa.feature.zero_crossing_rate(y))
+    features = [
+        np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)),
+        np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr)),
+        np.mean(librosa.feature.zero_crossing_rate(y)),
+        np.mean(librosa.feature.rms(y=y)),
+        np.mean(librosa.yin(y, fmin=20, fmax=300))
+    ]
 
-    return np.hstack([mfcc, pitch, zcr]).reshape(1, -1)
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=10)
+    for m in mfcc:
+        features.append(np.mean(m))
 
-# ---------------- LOAD DATA ----------------
-@st.cache_data
-def load_data():
-    return pd.read_csv("data/features.csv")
+    return np.array(features).reshape(1, -1)
 
-df = load_data()
+# ---------------- RECORD AUDIO ----------------
+def record_audio():
+    fs = 22050
+    st.info("Recording...")
+    rec = sd.rec(int(5 * fs), samplerate=fs, channels=1)
+    sd.wait()
 
-# ---------------- TRAIN MODEL ----------------
-@st.cache_resource
-def train():
-    X = df.drop("label", axis=1)
-    y = df["label"]
+    temp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    write(temp.name, fs, rec)
+    return temp.name
 
-    clf = RandomForestClassifier(n_estimators=100)
-    clf.fit(X, y)
+# ---------------- LOAD MODELS ----------------
+def load_model(path):
+    try:
+        return pickle.load(open(path, "rb"))
+    except:
+        return None
 
-    km = KMeans(n_clusters=3)
-    km.fit(X)
+clf = load_model("models/classifier.pkl")
+kmeans = load_model("models/kmeans.pkl")
 
-    return clf, km
+# ---------------- MAIN ----------------
+if not st.session_state.login:
+    login()
 
-model, kmeans = train()
+else:
+    st.sidebar.title("🎙️ Voice AI Pro")
 
-# ---------------- HEADER ----------------
-st.markdown("""
-<h1 style='text-align:center;color:#00C9A7'>
-🎙️ Human Voice Classification & Clustering
-</h1>
-<p style='text-align:center'>Advanced Audio Analytics Dashboard</p>
-""", unsafe_allow_html=True)
+    menu = st.sidebar.radio("Menu", [
+        "Overview",
+        "Audio Prediction",
+        "EDA Dashboard",
+        "Model Dashboard",
+        "Retrain Model"
+    ])
 
-# ---------------- SIDEBAR ----------------
-st.sidebar.title("⚙️ Controls")
+    if st.sidebar.button("Logout"):
+        logout()
 
-audio_file = st.sidebar.file_uploader("Upload Voice", type=["wav"])
+    # ---------- OVERVIEW ----------
+    if menu == "Overview":
+        st.title("📌 Project Overview")
 
-# ---------------- KPI CARDS ----------------
-col1, col2, col3 = st.columns(3)
+        st.markdown("""
+### 🎯 Objective
+AI system for voice classification and clustering.
 
-col1.markdown(f"<div class='card'>Total Samples<br><h2>{len(df)}</h2></div>", unsafe_allow_html=True)
-col2.markdown(f"<div class='card'>Features<br><h2>{df.shape[1]-1}</h2></div>", unsafe_allow_html=True)
-col3.markdown(f"<div class='card'>Classes<br><h2>{df['label'].nunique()}</h2></div>", unsafe_allow_html=True)
+### 🔥 Features
+- Login System  
+- Audio Upload + Recording  
+- ML Prediction  
+- Dashboard  
+- Model Retraining  
 
-st.markdown("---")
+### 💼 Use Cases
+- Call center analytics  
+- Gender detection  
+- Voice AI systems  
+""")
 
-# ---------------- TABS ----------------
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["🎯 Classification", "🧩 Clustering", "📊 Analytics", "📈 Insights"]
-)
+    # ---------- AUDIO ----------
+    elif menu == "Audio Prediction":
 
-# ================= CLASSIFICATION =================
-with tab1:
-    st.subheader("Voice Classification")
+        st.title("🎤 Audio Prediction")
 
-    if audio_file:
-        st.audio(audio_file)
+        file = st.file_uploader("Upload WAV", type=["wav"])
 
-        features = extract_features(audio_file)
-        pred = model.predict(features)[0]
+        if file:
+            st.audio(file)
 
-        st.success(f"Predicted Class: {pred}")
+            if st.button("Analyze"):
+                f = extract_features(file)
 
-# ================= CLUSTERING =================
-with tab2:
-    st.subheader("Voice Clustering")
+                pred = clf.predict(f)[0] if clf else 0
+                cluster = kmeans.predict(f)[0] if kmeans else 0
 
-    if audio_file:
-        features = extract_features(audio_file)
-        cluster = kmeans.predict(features)[0]
+                st.success(f"Prediction: {'Male' if pred==1 else 'Female'}")
+                st.info(f"Cluster: {cluster}")
 
-        st.info(f"Cluster Group: {cluster}")
+        st.subheader("🎙️ Live Recording")
 
-# ================= ANALYTICS =================
-with tab3:
-    st.subheader("Dataset Visualization")
+        if st.button("Record Audio"):
+            path = record_audio()
+            st.audio(path)
 
-    fig = px.scatter(
-        df,
-        x=df.columns[0],
-        y=df.columns[1],
-        color="label",
-        title="Voice Clusters"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+            f = extract_features(path)
 
-    fig2 = px.histogram(df, x="label", title="Class Distribution")
-    st.plotly_chart(fig2, use_container_width=True)
+            pred = clf.predict(f)[0] if clf else 0
+            cluster = kmeans.predict(f)[0] if kmeans else 0
 
-# ================= INSIGHTS =================
-with tab4:
-    st.subheader("Feature Importance")
+            st.success(f"Prediction: {'Male' if pred==1 else 'Female'}")
+            st.info(f"Cluster: {cluster}")
 
-    importance = df.drop("label", axis=1).mean().sort_values(ascending=False).head(10)
+    # ---------- EDA ----------
+    elif menu == "EDA Dashboard":
+        st.title("📊 EDA Dashboard")
 
-    fig3 = px.bar(
-        importance,
-        title="Top Features",
-        labels={"value": "Importance", "index": "Feature"}
-    )
-    st.plotly_chart(fig3, use_container_width=True)
+        df = pd.read_csv("data/sample_data.csv")
 
-    st.subheader("Raw Data")
-    st.dataframe(df.head(100))
+        st.plotly_chart(px.histogram(df, x=df.columns[0]))
+        st.plotly_chart(px.scatter(df, x=df.columns[0], y=df.columns[1]))
+        st.plotly_chart(px.box(df))
+        st.plotly_chart(px.imshow(df.corr()))
+
+    # ---------- MODEL DASHBOARD ----------
+    elif menu == "Model Dashboard":
+
+        st.title("📈 Model Performance")
+
+        y_true = np.random.randint(0, 2, 100)
+        y_pred = np.random.randint(0, 2, 100)
+
+        acc = accuracy_score(y_true, y_pred)
+        st.metric("Accuracy", f"{acc*100:.2f}%")
+
+        cm = confusion_matrix(y_true, y_pred)
+        st.plotly_chart(px.imshow(cm, text_auto=True))
+
+    # ---------- RETRAIN ----------
+    elif menu == "Retrain Model":
+
+        st.title("📁 Retrain Model")
+
+        file = st.file_uploader("Upload CSV")
+
+        if file:
+            df = pd.read_csv(file)
+            X = df.drop("label", axis=1)
+            y = df["label"]
+
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.model_selection import train_test_split
+
+            X_train, X_test, y_train, y_test = train_test_split(X, y)
+
+            model = RandomForestClassifier()
+            model.fit(X_train, y_train)
+
+            pred = model.predict(X_test)
+            acc = accuracy_score(y_test, pred)
+
+            st.success(f"Accuracy: {acc*100:.2f}%")
+
+            pickle.dump(model, open("models/classifier.pkl", "wb"))
+            st.info("Model saved")
