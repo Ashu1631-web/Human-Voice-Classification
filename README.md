@@ -1,27 +1,20 @@
-# 🎙️ Human Voice Classification & Clustering
-
-## 📌 Overview
-A machine learning system to classify and cluster human voices using audio feature engineering.
-
----
+# 🎙️ Voice AI Pro
 
 ## 🚀 Features
-- Voice classification (RF, SVM)
-- Clustering (KMeans, DBSCAN)
-- MFCC + pitch extraction
-- Streamlit interactive dashboard
-- Plotly visualizations
+- Login System
+- Audio Upload & Recording
+- Voice Classification
+- Clustering
+- Dashboard Analytics
+- Model Retraining
 
----
+## 🛠 Tech Stack
+- Python
+- Streamlit
+- Scikit-learn
+- Librosa
 
-## 📊 Dashboard
-![Dashboard](assets/dashboard.png)
-
----
-
-## ⚙️ Run Locally
+## ▶️ Run Locally
 ```bash
-git clone https://github.com/Ashu1631-web/Human-Voice-Classification
-cd Human-Voice-Classification
 pip install -r requirements.txt
-streamlit run app/main.py
+streamlit run app.py
