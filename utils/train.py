@@ -10,7 +10,7 @@ from sklearn.metrics import accuracy_score
 # =========================
 # LOAD DATASET
 # =========================
-df = pd.read_csv("../data/sample_data.csv")   # change if needed
+df = pd.read_csv("/data/vocal_gender_features_new.csv")   # change if needed
 
 # =========================
 # PREPROCESS
