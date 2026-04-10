@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import pickle
 import plotly.express as px
+import plotly.graph_objects as go
 from sklearn.metrics import accuracy_score, confusion_matrix
 
 # ================= CONFIG =================
@@ -46,19 +47,58 @@ def login():
 # ================= DATA =================
 @st.cache_data
 def load_data():
-    try:
-        df = pd.read_csv("data/vocal_gender_features_new.csv")
-        df = df.select_dtypes(include=np.number)
-        return df
-    except Exception as e:
-        st.error(f"Dataset error: {e}")
-        st.stop()
+    import os
+    paths = [
+        "data/vocal_gender_features_new.csv",
+        "vocal_gender_features_new.csv"
+    ]
+    for path in paths:
+        if os.path.exists(path):
+            df = pd.read_csv(path)
+            if "label" not in df.columns and "gender" in df.columns:
+                df.rename(columns={"gender":"label"}, inplace=True)
+            return df.select_dtypes(include=np.number)
 
-# ================= SAFE SPECTROGRAM =================
-def plot_audio(file):
+    st.warning("Upload dataset manually")
+    uploaded = st.file_uploader("Upload CSV", type=["csv"])
+    if uploaded:
+        return pd.read_csv(uploaded)
+
+    st.stop()
+
+# ================= AUDIO =================
+def extract_features(file):
+    import librosa
+    y, sr = librosa.load(file, sr=None)
+
+    features = [
+        np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)),
+        np.mean(librosa.feature.rms(y=y))
+    ]
+
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=10)
+    for m in mfcc:
+        features.append(np.mean(m))
+
+    return np.array(features).reshape(1, -1)
+
+# ================= WAVEFORM =================
+def plot_waveform(file):
     try:
         import librosa
-        import librosa.display
+        y, sr = librosa.load(file, sr=None)
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(y=y, mode='lines'))
+        fig.update_layout(title="🎧 Audio Waveform", template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
+    except:
+        st.warning("Waveform error")
+
+# ================= SPECTROGRAM =================
+def plot_spectrogram(file):
+    try:
+        import librosa, librosa.display
         import matplotlib.pyplot as plt
 
         y, sr = librosa.load(file, sr=None)
@@ -67,41 +107,11 @@ def plot_audio(file):
 
         fig, ax = plt.subplots()
         librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='mel', ax=ax)
-        ax.set_title("Mel Spectrogram")
         st.pyplot(fig)
-
     except:
-        # fallback waveform
-        import matplotlib.pyplot as plt
-        y = np.random.randn(1000)
-        fig, ax = plt.subplots()
-        ax.plot(y)
-        ax.set_title("Waveform (fallback)")
-        st.pyplot(fig)
+        st.warning("Spectrogram error")
 
-# ================= FEATURE EXTRACTION =================
-def extract_features(file):
-    try:
-        import librosa
-        y, sr = librosa.load(file, sr=None)
-
-        features = [
-            np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)),
-            np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr)),
-            np.mean(librosa.feature.zero_crossing_rate(y)),
-            np.mean(librosa.feature.rms(y=y)),
-        ]
-
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=10)
-        for m in mfcc:
-            features.append(np.mean(m))
-
-        return np.array(features).reshape(1, -1)
-
-    except:
-        return np.random.rand(1, 14)
-
-# ================= LOAD MODELS =================
+# ================= MODELS =================
 def load_model(path):
     try:
         return pickle.load(open(path,"rb"))
@@ -117,40 +127,34 @@ if not st.session_state.login:
     login()
 
 else:
-    st.sidebar.title("🎙️ Voice AI Pro")
-
     menu = st.sidebar.radio("Menu", [
         "Overview","Audio","EDA","Model","Retrain"
     ])
 
-    if st.sidebar.button("Logout"):
-        st.session_state.login=False
-
     # ---------- OVERVIEW ----------
     if menu=="Overview":
         st.markdown("<div class='glass'>", unsafe_allow_html=True)
-        st.title("📌 Voice AI System")
-        st.write("""
-        ML-based system for voice classification and clustering.
-        Includes audio analysis, spectrogram, and real dataset dashboard.
+        st.markdown("""
+# 🎙️ Human Voice Classification & Clustering  
+### *Decoding the DNA of Sound through Machine Learning*
         """)
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------- AUDIO ----------
     elif menu=="Audio":
-        st.title("🎤 Audio Prediction")
-
         file = st.file_uploader("Upload WAV", type=["wav"])
 
         if file:
             st.audio(file)
 
-            st.subheader("🎧 Audio Visualization")
-            plot_audio(file)
+            st.subheader("🎧 Waveform")
+            plot_waveform(file)
 
-            if st.button("Analyze Voice"):
+            st.subheader("🎧 Spectrogram")
+            plot_spectrogram(file)
+
+            if st.button("Analyze"):
                 f = extract_features(file)
-
                 if scaler:
                     f = scaler.transform(f)
 
@@ -162,12 +166,11 @@ else:
 
     # ---------- EDA ----------
     elif menu=="EDA":
-        st.title("📊 Dataset Analysis")
-
         df = load_data()
+
         st.dataframe(df.head())
 
-        col = st.selectbox("Select Feature", df.columns)
+        col = st.selectbox("Feature", df.columns)
 
         st.plotly_chart(px.histogram(df, x=col))
         st.plotly_chart(px.box(df, y=col))
@@ -175,43 +178,60 @@ else:
 
     # ---------- MODEL ----------
     elif menu=="Model":
-        st.title("📈 Model Dashboard")
+        df = load_data()
 
-        y_true = np.random.randint(0,2,100)
-        y_pred = np.random.randint(0,2,100)
+        cols = df.columns
 
-        st.metric("Accuracy", f"{accuracy_score(y_true,y_pred)*100:.2f}%")
-        st.plotly_chart(px.imshow(confusion_matrix(y_true,y_pred)))
+        # 10+ charts
+        st.plotly_chart(px.histogram(df, x=cols[0]))
+        st.plotly_chart(px.box(df, y=cols[1]))
+        st.plotly_chart(px.scatter(df, x=cols[0], y=cols[1]))
+        st.plotly_chart(px.imshow(df.corr()))
+        st.plotly_chart(px.line(df.head(50)))
+        st.plotly_chart(px.density_contour(df, x=cols[0], y=cols[1]))
+        st.plotly_chart(px.violin(df, y=cols[1]))
+        st.plotly_chart(px.area(df.head(50)))
+        st.plotly_chart(px.ecdf(df, x=cols[0]))
+
+        # FEATURE IMPORTANCE
+        if clf and hasattr(clf, "feature_importances_"):
+            st.subheader("📊 Feature Importance")
+
+            importance = clf.feature_importances_
+            feat_df = pd.DataFrame({
+                "Feature": df.drop("label", axis=1).columns,
+                "Importance": importance
+            }).sort_values(by="Importance", ascending=False)
+
+            st.plotly_chart(px.bar(feat_df.head(10),
+                                   x="Importance",
+                                   y="Feature",
+                                   orientation="h"))
 
     # ---------- RETRAIN ----------
     elif menu=="Retrain":
-        st.title("📁 Retrain Model")
-
         file = st.file_uploader("Upload CSV")
 
         if file:
             df = pd.read_csv(file)
 
-            if "label" not in df.columns:
-                st.error("Dataset must contain label")
-            else:
-                from sklearn.model_selection import train_test_split
-                from sklearn.ensemble import RandomForestClassifier
-                from sklearn.preprocessing import StandardScaler
+            from sklearn.model_selection import train_test_split
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.preprocessing import StandardScaler
 
-                X = df.drop("label", axis=1)
-                y = df["label"]
+            X = df.drop("label", axis=1)
+            y = df["label"]
 
-                scaler = StandardScaler()
-                X = scaler.fit_transform(X)
+            scaler = StandardScaler()
+            X = scaler.fit_transform(X)
 
-                X_train,X_test,y_train,y_test = train_test_split(X,y)
+            X_train,X_test,y_train,y_test = train_test_split(X,y)
 
-                model = RandomForestClassifier(n_estimators=200)
-                model.fit(X_train,y_train)
+            model = RandomForestClassifier(n_estimators=200)
+            model.fit(X_train,y_train)
 
-                acc = accuracy_score(y_test, model.predict(X_test))
-                st.success(f"Accuracy: {acc*100:.2f}%")
+            acc = accuracy_score(y_test, model.predict(X_test))
+            st.success(f"Accuracy: {acc*100:.2f}%")
 
-                pickle.dump(model, open("models/classifier.pkl","wb"))
-                pickle.dump(scaler, open("models/scaler.pkl","wb"))
+            pickle.dump(model, open("models/classifier.pkl","wb"))
+            pickle.dump(scaler, open("models/scaler.pkl","wb"))
