@@ -4,7 +4,6 @@ import pandas as pd
 import pickle
 import plotly.express as px
 import plotly.graph_objects as go
-from sklearn.metrics import accuracy_score, confusion_matrix
 
 # ================= CONFIG =================
 st.set_page_config(page_title="Voice AI Pro", layout="wide")
@@ -21,11 +20,7 @@ st.markdown("""
     padding: 20px;
     border-radius: 15px;
 }
-h1 { color:#00eaff; text-align:center;}
-.stButton>button {
-    background: linear-gradient(90deg,#00eaff,#0072ff);
-    color:white;
-}
+h1, h2, h3 { color:#00eaff; text-align:center;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -35,88 +30,62 @@ if "login" not in st.session_state:
 
 def login():
     st.title("🎙️ Voice AI Login")
-    user = st.text_input("Username")
-    pwd = st.text_input("Password", type="password")
-
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
     if st.button("Login"):
-        if (user=="admin" and pwd=="admin123") or (user=="user" and pwd=="user123"):
-            st.session_state.login=True
+        if (u=="admin" and p=="admin123") or (u=="user" and p=="user123"):
+            st.session_state.login = True
         else:
-            st.error("Invalid credentials")
+            st.error("Invalid login")
 
 # ================= DATA =================
 @st.cache_data
 def load_data():
     import os
-    paths = [
-        "data/vocal_gender_features_new.csv",
-        "vocal_gender_features_new.csv"
-    ]
-    for path in paths:
-        if os.path.exists(path):
-            df = pd.read_csv(path)
+    paths = ["data/vocal_gender_features_new.csv","vocal_gender_features_new.csv"]
+    for p in paths:
+        if os.path.exists(p):
+            df = pd.read_csv(p)
             if "label" not in df.columns and "gender" in df.columns:
                 df.rename(columns={"gender":"label"}, inplace=True)
             return df.select_dtypes(include=np.number)
 
-    st.warning("Upload dataset manually")
-    uploaded = st.file_uploader("Upload CSV", type=["csv"])
-    if uploaded:
-        return pd.read_csv(uploaded)
-
+    st.warning("Upload dataset")
+    f = st.file_uploader("Upload CSV", type=["csv"])
+    if f:
+        return pd.read_csv(f)
     st.stop()
 
 # ================= AUDIO =================
 def extract_features(file):
     import librosa
     y, sr = librosa.load(file, sr=None)
-
-    features = [
-        np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)),
-        np.mean(librosa.feature.rms(y=y))
-    ]
-
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=10)
-    for m in mfcc:
-        features.append(np.mean(m))
+    return np.array([np.mean(m) for m in mfcc]).reshape(1, -1)
 
-    return np.array(features).reshape(1, -1)
-
-# ================= WAVEFORM =================
 def plot_waveform(file):
-    try:
-        import librosa
-        y, sr = librosa.load(file, sr=None)
+    import librosa
+    y, sr = librosa.load(file, sr=None)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(y=y, mode='lines', name="Waveform"))
+    fig.update_layout(title="🎧 Audio Waveform", template="plotly_dark")
+    st.plotly_chart(fig, use_container_width=True)
 
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(y=y, mode='lines'))
-        fig.update_layout(title="🎧 Audio Waveform", template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
-    except:
-        st.warning("Waveform error")
-
-# ================= SPECTROGRAM =================
 def plot_spectrogram(file):
-    try:
-        import librosa, librosa.display
-        import matplotlib.pyplot as plt
-
-        y, sr = librosa.load(file, sr=None)
-        S = librosa.feature.melspectrogram(y=y, sr=sr)
-        S_db = librosa.power_to_db(S)
-
-        fig, ax = plt.subplots()
-        librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='mel', ax=ax)
-        st.pyplot(fig)
-    except:
-        st.warning("Spectrogram error")
+    import librosa, librosa.display
+    import matplotlib.pyplot as plt
+    y, sr = librosa.load(file, sr=None)
+    S = librosa.feature.melspectrogram(y=y, sr=sr)
+    S_db = librosa.power_to_db(S)
+    fig, ax = plt.subplots()
+    librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='mel', ax=ax)
+    ax.set_title("🎧 Spectrogram")
+    st.pyplot(fig)
 
 # ================= MODELS =================
 def load_model(path):
-    try:
-        return pickle.load(open(path,"rb"))
-    except:
-        return None
+    try: return pickle.load(open(path,"rb"))
+    except: return None
 
 clf = load_model("models/classifier.pkl")
 kmeans = load_model("models/kmeans.pkl")
@@ -125,11 +94,8 @@ scaler = load_model("models/scaler.pkl")
 # ================= MAIN =================
 if not st.session_state.login:
     login()
-
 else:
-    menu = st.sidebar.radio("Menu", [
-        "Overview","Audio","EDA","Model","Retrain"
-    ])
+    menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Model"])
 
     # ---------- OVERVIEW ----------
     if menu=="Overview":
@@ -137,12 +103,32 @@ else:
         st.markdown("""
 # 🎙️ Human Voice Classification & Clustering  
 ### *Decoding the DNA of Sound through Machine Learning*
+
+## 📝 Project Overview
+This project sits at the intersection of Speech Processing and Artificial Intelligence.  
+It analyzes human voice using pitch, spectral features, and MFCC.
+
+Using:
+- Supervised Learning (Classification)
+- Unsupervised Learning (Clustering)
+
+The system converts raw audio into meaningful predictions.
+
+## 🚀 Key Features
+- Feature Engineering (40+ features)
+- Gender Classification (Male/Female)
+- Clustering patterns
+- Interactive Streamlit dashboard
+- Optimized top 15–20 features
+
+## 🛠️ Tech Stack
+Python, Scikit-learn, Librosa, Plotly, Streamlit
         """)
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------- AUDIO ----------
     elif menu=="Audio":
-        file = st.file_uploader("Upload WAV", type=["wav"])
+        file = st.file_uploader("Upload Audio", type=["wav","mp3"])
 
         if file:
             st.audio(file)
@@ -155,8 +141,7 @@ else:
 
             if st.button("Analyze"):
                 f = extract_features(file)
-                if scaler:
-                    f = scaler.transform(f)
+                if scaler: f = scaler.transform(f)
 
                 pred = clf.predict(f)[0] if clf else 0
                 cluster = kmeans.predict(f)[0] if kmeans else 0
@@ -167,71 +152,36 @@ else:
     # ---------- EDA ----------
     elif menu=="EDA":
         df = load_data()
-
         st.dataframe(df.head())
 
-        col = st.selectbox("Feature", df.columns)
+        col = st.selectbox("Select Feature", df.columns)
 
-        st.plotly_chart(px.histogram(df, x=col))
-        st.plotly_chart(px.box(df, y=col))
-        st.plotly_chart(px.imshow(df.corr()))
+        st.plotly_chart(px.histogram(df, x=col, title="Histogram"))
+        st.plotly_chart(px.box(df, y=col, title="Box Plot"))
+        st.plotly_chart(px.imshow(df.corr(), title="Correlation Heatmap"))
 
     # ---------- MODEL ----------
     elif menu=="Model":
         df = load_data()
-
         cols = df.columns
 
-        # 10+ charts
-        st.plotly_chart(px.histogram(df, x=cols[0]))
-        st.plotly_chart(px.box(df, y=cols[1]))
-        st.plotly_chart(px.scatter(df, x=cols[0], y=cols[1]))
-        st.plotly_chart(px.imshow(df.corr()))
-        st.plotly_chart(px.line(df.head(50)))
-        st.plotly_chart(px.density_contour(df, x=cols[0], y=cols[1]))
-        st.plotly_chart(px.violin(df, y=cols[1]))
-        st.plotly_chart(px.area(df.head(50)))
-        st.plotly_chart(px.ecdf(df, x=cols[0]))
+        st.plotly_chart(px.histogram(df, x=cols[0], title="Histogram"))
+        st.plotly_chart(px.box(df, y=cols[1], title="Box Plot"))
+        st.plotly_chart(px.scatter(df, x=cols[0], y=cols[1], title="Scatter Plot"))
+        st.plotly_chart(px.imshow(df.corr(), title="Correlation Matrix"))
+        st.plotly_chart(px.line(df.head(50), title="Line Chart"))
+        st.plotly_chart(px.violin(df, y=cols[1], title="Violin Plot"))
+        st.plotly_chart(px.area(df.head(50), title="Area Chart"))
+        st.plotly_chart(px.ecdf(df, x=cols[0], title="ECDF"))
 
-        # FEATURE IMPORTANCE
-        if clf and hasattr(clf, "feature_importances_"):
+        # Feature Importance
+        if clf and hasattr(clf,"feature_importances_"):
             st.subheader("📊 Feature Importance")
+            feat = df.drop("label",axis=1).columns
+            imp = clf.feature_importances_
 
-            importance = clf.feature_importances_
-            feat_df = pd.DataFrame({
-                "Feature": df.drop("label", axis=1).columns,
-                "Importance": importance
-            }).sort_values(by="Importance", ascending=False)
-
-            st.plotly_chart(px.bar(feat_df.head(10),
-                                   x="Importance",
-                                   y="Feature",
-                                   orientation="h"))
-
-    # ---------- RETRAIN ----------
-    elif menu=="Retrain":
-        file = st.file_uploader("Upload CSV")
-
-        if file:
-            df = pd.read_csv(file)
-
-            from sklearn.model_selection import train_test_split
-            from sklearn.ensemble import RandomForestClassifier
-            from sklearn.preprocessing import StandardScaler
-
-            X = df.drop("label", axis=1)
-            y = df["label"]
-
-            scaler = StandardScaler()
-            X = scaler.fit_transform(X)
-
-            X_train,X_test,y_train,y_test = train_test_split(X,y)
-
-            model = RandomForestClassifier(n_estimators=200)
-            model.fit(X_train,y_train)
-
-            acc = accuracy_score(y_test, model.predict(X_test))
-            st.success(f"Accuracy: {acc*100:.2f}%")
-
-            pickle.dump(model, open("models/classifier.pkl","wb"))
-            pickle.dump(scaler, open("models/scaler.pkl","wb"))
+            imp_df = pd.DataFrame({"Feature":feat,"Importance":imp})
+            st.plotly_chart(px.bar(imp_df.sort_values("Importance"),
+                                   x="Importance", y="Feature",
+                                   orientation="h",
+                                   title="Top Features"))
