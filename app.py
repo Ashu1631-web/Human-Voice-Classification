@@ -7,90 +7,93 @@ import plotly.express as px
 from sklearn.metrics import accuracy_score, confusion_matrix
 
 # =========================
-# PAGE CONFIG
+# CONFIG
 # =========================
 st.set_page_config(page_title="Voice AI Pro", layout="wide")
 
 # =========================
-# PREMIUM GLASS UI CSS
+# PREMIUM UI (GLASS + BG)
 # =========================
 st.markdown("""
 <style>
-/* Background Gradient */
-body {
-    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+.stApp {
+    background-image: url("https://images.unsplash.com/photo-1511376777868-611b54f68947");
+    background-size: cover;
+    background-attachment: fixed;
 }
-
-/* Glass Cards */
 .glass {
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 15px;
+    background: rgba(0,0,0,0.7);
     padding: 20px;
+    border-radius: 15px;
     backdrop-filter: blur(10px);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
 }
-
-/* Titles */
 h1, h2, h3 {
     color: #00eaff;
     text-align: center;
 }
-
-/* Buttons */
 .stButton>button {
-    background: linear-gradient(90deg, #00eaff, #0072ff);
-    border: none;
-    border-radius: 10px;
+    background: linear-gradient(90deg,#00eaff,#0072ff);
     color: white;
-    height: 3em;
-    width: 100%;
-    transition: 0.3s;
-}
-.stButton>button:hover {
-    transform: scale(1.05);
-}
-
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background: rgba(0,0,0,0.7);
+    border-radius: 10px;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
-# SESSION STATE
+# SESSION
 # =========================
 if "login" not in st.session_state:
     st.session_state.login = False
 
 # =========================
-# LOGIN SYSTEM
+# LOGIN
 # =========================
 def login():
-    st.markdown("<h1>🔐 Voice AI Login</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>🎙️ Voice AI Login</h1>", unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
+        st.markdown("<div class='glass'>", unsafe_allow_html=True)
+
         user = st.text_input("Username")
         pwd = st.text_input("Password", type="password")
 
         if st.button("Login"):
             if user == "admin" and pwd == "admin123":
                 st.session_state.login = True
+                st.success("Admin Login Success")
             elif user == "user" and pwd == "user123":
                 st.session_state.login = True
+                st.success("User Login Success")
             else:
                 st.error("Invalid credentials")
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
 def logout():
     st.session_state.login = False
 
 # =========================
-# LOAD DATA (REAL)
+# LOAD DATASET (REAL)
 # =========================
 @st.cache_data
 def load_data():
-    return pd.read_csv("data/processed_data.csv")
+    try:
+        df = pd.read_csv("data/vocal_gender_features_new.csv")
+
+        # Ensure label exists
+        if "label" not in df.columns:
+            if "gender" in df.columns:
+                df.rename(columns={"gender": "label"}, inplace=True)
+
+        # Keep numeric only
+        df = df.select_dtypes(include=np.number)
+
+        return df
+
+    except Exception as e:
+        st.error(f"Dataset error: {e}")
+        st.stop()
 
 # =========================
 # FEATURE EXTRACTION
@@ -126,13 +129,14 @@ kmeans = load_model("models/kmeans.pkl")
 scaler = load_model("models/scaler.pkl")
 
 # =========================
-# MAIN APP
+# MAIN
 # =========================
 if not st.session_state.login:
     login()
 
 else:
     st.sidebar.title("🎙️ Voice AI Pro")
+
     menu = st.sidebar.radio("Navigation", [
         "Overview",
         "Audio Prediction",
@@ -150,17 +154,19 @@ else:
     if menu == "Overview":
 
         st.markdown("<div class='glass'>", unsafe_allow_html=True)
-        st.title("📌 Project Overview")
 
+        st.title("📌 Project Overview")
         st.write("""
-        This system uses Machine Learning to classify and cluster human voice data.
-        Built with advanced UI and real-time analytics.
+        This system classifies and clusters human voice using machine learning.
+        It supports real-time audio analysis and dynamic model retraining.
         """)
 
+        df = load_data()
+
         col1, col2, col3 = st.columns(3)
-        col1.metric("Models", "RandomForest + KMeans")
-        col2.metric("Features Used", "15+")
-        col3.metric("System Type", "Real-time ML")
+        col1.metric("Rows", df.shape[0])
+        col2.metric("Features", df.shape[1])
+        col3.metric("Models", "RF + KMeans")
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -170,15 +176,16 @@ else:
     elif menu == "Audio Prediction":
 
         st.markdown("<div class='glass'>", unsafe_allow_html=True)
+
         st.title("🎤 Audio Prediction")
 
-        audio_file = st.file_uploader("Upload WAV file", type=["wav"])
+        file = st.file_uploader("Upload WAV file", type=["wav"])
 
-        if audio_file:
-            st.audio(audio_file)
+        if file:
+            st.audio(file)
 
             if st.button("Analyze Voice"):
-                features = extract_features(audio_file)
+                features = extract_features(file)
 
                 if scaler:
                     features = scaler.transform(features)
@@ -192,31 +199,28 @@ else:
         st.markdown("</div>", unsafe_allow_html=True)
 
     # =========================
-    # REAL EDA DASHBOARD
+    # EDA
     # =========================
     elif menu == "EDA Dashboard":
 
         st.title("📊 Real Dataset Dashboard")
 
-        try:
-            df = load_data()
+        df = load_data()
 
-            st.dataframe(df.head())
+        st.dataframe(df.head())
 
-            col1, col2 = st.columns(2)
+        cols = df.columns.tolist()
 
-            with col1:
-                st.plotly_chart(px.histogram(df, x=df.columns[0]))
-                st.plotly_chart(px.box(df, y=df.columns[1]))
+        feature = st.selectbox("Select Feature", cols)
 
-            with col2:
-                st.plotly_chart(px.scatter(df, x=df.columns[0], y=df.columns[1], color="label"))
-                st.plotly_chart(px.imshow(df.corr()))
+        st.plotly_chart(px.histogram(df, x=feature))
+        st.plotly_chart(px.box(df, y=feature))
 
+        if "label" in df.columns:
+            st.plotly_chart(px.scatter(df, x=cols[0], y=cols[1], color="label"))
             st.plotly_chart(px.pie(df, names="label"))
 
-        except:
-            st.error("Dataset not found. Please upload processed_data.csv")
+        st.plotly_chart(px.imshow(df.corr()))
 
     # =========================
     # MODEL DASHBOARD
@@ -248,29 +252,32 @@ else:
 
             st.dataframe(df.head())
 
-            from sklearn.model_selection import train_test_split
-            from sklearn.ensemble import RandomForestClassifier
+            if "label" not in df.columns:
+                st.error("Dataset must have 'label'")
+            else:
+                from sklearn.model_selection import train_test_split
+                from sklearn.ensemble import RandomForestClassifier
 
-            X = df.drop("label", axis=1)
-            y = df["label"]
+                X = df.drop("label", axis=1)
+                y = df["label"]
 
-            X_train, X_test, y_train, y_test = train_test_split(X, y)
+                X_train, X_test, y_train, y_test = train_test_split(X, y)
 
-            model = RandomForestClassifier()
-            model.fit(X_train, y_train)
+                model = RandomForestClassifier()
+                model.fit(X_train, y_train)
 
-            pred = model.predict(X_test)
-            acc = accuracy_score(y_test, pred)
+                pred = model.predict(X_test)
+                acc = accuracy_score(y_test, pred)
 
-            st.success(f"Accuracy: {acc*100:.2f}%")
+                st.success(f"Accuracy: {acc*100:.2f}%")
 
-            pickle.dump(model, open("models/classifier.pkl", "wb"))
-            st.info("Model Updated ✅")
+                pickle.dump(model, open("models/classifier.pkl", "wb"))
+                st.info("Model Updated ✅")
 
 # =========================
 # FOOTER
 # =========================
 st.markdown("""
 ---
-<center style='color:#00eaff;'>🚀 Premium Voice AI Dashboard</center>
+<center style='color:#00eaff;'>🚀 Voice AI Pro - Final Production App</center>
 """, unsafe_allow_html=True)
