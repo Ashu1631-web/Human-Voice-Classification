@@ -43,8 +43,7 @@ def login():
 @st.cache_data
 def load_data():
     import os
-    paths = ["data/vocal_gender_features_new.csv",
-             "vocal_gender_features_new.csv"]
+    paths = ["data/vocal_gender_features_new.csv","vocal_gender_features_new.csv"]
 
     for p in paths:
         if os.path.exists(p):
@@ -60,7 +59,7 @@ def load_data():
 
     st.stop()
 
-# ================= AUDIO LOAD =================
+# ================= AUDIO =================
 def load_audio(file):
     try:
         import librosa
@@ -69,11 +68,10 @@ def load_audio(file):
     except:
         return None, None
 
-# ================= WAVEFORM =================
 def plot_waveform(file):
     y, sr = load_audio(file)
     if y is None:
-        st.warning("⚠️ Use .wav file for best results")
+        st.warning("⚠️ Use .wav file")
         return
 
     fig = go.Figure()
@@ -81,7 +79,6 @@ def plot_waveform(file):
     fig.update_layout(title="🎧 Audio Waveform")
     st.plotly_chart(fig, use_container_width=True)
 
-# ================= SPECTROGRAM =================
 def plot_spectrogram(file):
     try:
         import librosa, librosa.display
@@ -95,10 +92,10 @@ def plot_spectrogram(file):
         librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='mel', ax=ax)
         ax.set_title("🎧 Spectrogram")
         st.pyplot(fig)
+
     except:
         st.warning("Spectrogram not available")
 
-# ================= FIXED FEATURES =================
 def extract_features(file):
     y, sr = load_audio(file)
 
@@ -109,7 +106,6 @@ def extract_features(file):
         import librosa
 
         features = []
-
         features.append(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)))
         features.append(np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr)))
         features.append(np.mean(librosa.feature.zero_crossing_rate(y)))
@@ -147,15 +143,13 @@ else:
         st.markdown("<div class='glass'>", unsafe_allow_html=True)
         st.markdown("""
 # 🎙️ Human Voice Classification & Clustering  
-### *Decoding the DNA of Sound through Machine Learning*
-
-ML system using audio features for classification & clustering.
+### Decoding the DNA of Sound through Machine Learning
         """)
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------- AUDIO ----------
     elif menu=="Audio":
-        file = st.file_uploader("Upload Audio (.mp3 recommended)", type=["wav","mp3"])
+        file = st.file_uploader("Upload Audio (.wav recommended)", type=["wav","mp3"])
 
         if file:
             st.audio(file)
@@ -167,42 +161,32 @@ ML system using audio features for classification & clustering.
             plot_spectrogram(file)
 
             if st.button("Analyze"):
-    f = extract_features(file)
+                f = extract_features(file)
 
-    # Get expected feature count from model
-    expected_features = None
-    if clf:
-        try:
-            expected_features = clf.n_features_in_
-        except:
-            expected_features = f.shape[1]
+                # AUTO FIX FEATURE SIZE
+                expected = clf.n_features_in_ if clf else f.shape[1]
 
-    # 🔥 AUTO FIX FEATURE SIZE
-    if expected_features:
-        if f.shape[1] < expected_features:
-            # pad with zeros
-            padding = np.zeros((1, expected_features - f.shape[1]))
-            f = np.concatenate([f, padding], axis=1)
+                if f.shape[1] < expected:
+                    pad = np.zeros((1, expected - f.shape[1]))
+                    f = np.concatenate([f, pad], axis=1)
 
-        elif f.shape[1] > expected_features:
-            # trim extra features
-            f = f[:, :expected_features]
+                elif f.shape[1] > expected:
+                    f = f[:, :expected]
 
-    # SAFE SCALING
-    if scaler and hasattr(scaler, "n_features_in_"):
-        if f.shape[1] == scaler.n_features_in_:
-            f = scaler.transform(f)
+                # SAFE SCALING
+                if scaler and hasattr(scaler, "n_features_in_"):
+                    if f.shape[1] == scaler.n_features_in_:
+                        f = scaler.transform(f)
 
-    # FINAL PREDICTION (NO ERROR NOW)
-    try:
-        pred = clf.predict(f)[0] if clf else 0
-        cluster = kmeans.predict(f)[0] if kmeans else 0
+                try:
+                    pred = clf.predict(f)[0] if clf else 0
+                    cluster = kmeans.predict(f)[0] if kmeans else 0
 
-        st.success(f"Gender: {'Male' if pred else 'Female'}")
-        st.info(f"Cluster: {cluster}")
+                    st.success(f"Gender: {'Male' if pred else 'Female'}")
+                    st.info(f"Cluster: {cluster}")
 
-    except Exception as e:
-        st.error(f"Prediction error: {e}")
+                except Exception as e:
+                    st.error(f"Prediction error: {e}")
 
     # ---------- EDA ----------
     elif menu=="EDA":
