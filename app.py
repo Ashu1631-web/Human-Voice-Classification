@@ -8,34 +8,46 @@ import os
 
 st.set_page_config(page_title="👥 Human Clustering Classification", layout="wide")
 
-# ================= THEME TOGGLE =================
+# ================= THEME =================
 theme = st.sidebar.toggle("🌗 Dark / Light Mode", value=True)
-
-bg_color = "#0E1117" if theme else "#FFFFFF"
 text_color = "#FFFFFF" if theme else "#000000"
 
-# ================= UI (ANIMATED BG + GLASS) =================
+# ================= UI FIXED =================
 st.markdown(f"""
 <style>
 .stApp {{
-    background: linear-gradient(270deg, #0f2027, #203a43, #2c5364);
-    background-size: 600% 600%;
-    animation: gradientBG 15s ease infinite;
+    background-image: url("https://images.unsplash.com/photo-1610733661495-4aa6ed9fc6f4?q=80&w=869&auto=format&fit=crop");
+    background-size: cover;
+    background-attachment: fixed;
     color: {text_color};
 }}
 
-@keyframes gradientBG {{
-    0% {{background-position:0% 50%}}
-    50% {{background-position:100% 50%}}
-    100% {{background-position:0% 50%}}
+/* subtle overlay animation */
+.stApp::before {{
+    content: "";
+    position: fixed;
+    top:0; left:0;
+    width:100%; height:100%;
+    background: linear-gradient(270deg, rgba(0,0,0,0.4), rgba(0,0,0,0.6));
+    animation: fadeBG 10s ease-in-out infinite;
+    z-index:0;
+}}
+
+@keyframes fadeBG {{
+    0% {{opacity:0.3}}
+    50% {{opacity:0.6}}
+    100% {{opacity:0.3}}
 }}
 
 .glass {{
-    background: rgba(0,0,0,0.6);
+    background: rgba(0,0,0,0.65);
     padding: 25px;
     border-radius: 20px;
     backdrop-filter: blur(10px);
     box-shadow: 0px 0px 20px rgba(0,0,0,0.5);
+    margin-top: 100px;
+    position: relative;
+    z-index: 1;
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -75,7 +87,7 @@ def load_data():
         return pd.read_csv("vocal_gender_features_new.csv")
     return None
 
-# ================= FEATURES =================
+# ================= FEATURE EXTRACTION =================
 def extract_features(file):
     import librosa
     y, sr = librosa.load(file, duration=3)
@@ -110,18 +122,18 @@ if menu=="Overview":
 
     st.markdown("""
 ### 🧩 Introduction
-This project analyzes voice signals using ML to classify gender and cluster similar voices.
+Voice-based ML system for gender classification & clustering.
 
-### ❗ Problem Statement
-- Gender classification  
-- Voice clustering  
-- Deployable ML system  
+### ❗ Problem
+- Detect gender
+- Cluster voice patterns
+- Deploy easily
 
 ### 💡 Solution
 - SVM Classification  
 - KMeans Clustering  
 
-### 🛠 Tech Stack
+### 🛠 Tech
 Python | pandas | sklearn | Streamlit
 """)
 
