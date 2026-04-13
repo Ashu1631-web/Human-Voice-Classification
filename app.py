@@ -17,7 +17,7 @@ if not st.session_state.login:
     st.markdown("""
     <style>
     .stApp {
-        background-image: url("https://images.unsplash.com/photo-1518441902110-2dbe44f3a3c9?q=80&w=1200");
+        background-image: url("https://images.unsplash.com/photo-1769525649442-fd8b058b85ab?q=80&w=1074&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D");
         background-size: cover;
     }
     </style>
