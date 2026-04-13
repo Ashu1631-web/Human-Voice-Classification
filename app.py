@@ -231,10 +231,52 @@ FEATURE_COLUMNS = [
 ]
 
 # ================= FEATURE EXTRACTION =================
+def convert_to_wav(input_path, output_path="converted_audio.wav"):
+    """Convert any audio format (webm, ogg, mp3, etc.) to wav using ffmpeg."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-ar", "22050", "-ac", "1", output_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            return output_path, None
+        return None, result.stderr.decode()
+    except FileNotFoundError:
+        return None, "ffmpeg not found"
+
 def extract_features(filepath):
     try:
         import librosa
-        y, sr = librosa.load(filepath, duration=3)
+
+        # Try loading directly first
+        try:
+            y, sr = librosa.load(filepath, duration=3, sr=22050)
+            if len(y) < 100:
+                raise ValueError("Audio too short after direct load")
+        except Exception:
+            # Fallback: convert via ffmpeg then load
+            converted, err = convert_to_wav(filepath, "converted_audio.wav")
+            if converted is None:
+                # Last resort: try soundfile
+                try:
+                    import soundfile as sf
+                    data, sr = sf.read(filepath)
+                    if data.ndim > 1:
+                        data = data.mean(axis=1)
+                    y = data.astype(np.float32)
+                    # Resample to 22050 if needed
+                    if sr != 22050:
+                        y = librosa.resample(y, orig_sr=sr, target_sr=22050)
+                        sr = 22050
+                    y = y[:sr * 3]  # max 3 seconds
+                except Exception as e2:
+                    return None, f"Cannot read audio file: {e2}"
+            else:
+                y, sr = librosa.load(converted, duration=3, sr=22050)
+
+        if len(y) < 512:
+            return None, "Audio signal too short — please record at least 1 second."
 
         feats = []
 
@@ -253,10 +295,10 @@ def extract_features(filepath):
         pitch = librosa.yin(y, fmin=50, fmax=300)
         feats.extend([np.mean(pitch), np.min(pitch), np.max(pitch), np.std(pitch)])
 
-        feats.append(skew(y))
-        feats.append(kurtosis(y))
-        feats.append(-np.sum(y**2 * np.log(y**2 + 1e-10)))
-        feats.append(np.log(np.sum(y**2) + 1e-10))
+        feats.append(float(skew(y)))
+        feats.append(float(kurtosis(y)))
+        feats.append(float(-np.sum(y**2 * np.log(y**2 + 1e-10))))
+        feats.append(float(np.log(np.sum(y**2) + 1e-10)))
 
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
         for i in range(13):
@@ -282,28 +324,55 @@ def predict_and_display(filepath, model, scaler):
         return
 
     try:
-        proba = model.predict_proba(feats_scaled)[0]
+        proba      = model.predict_proba(feats_scaled)[0]
+        prediction = model.predict(feats_scaled)[0]   # raw label from model
     except Exception as e:
         st.error(f"❌ Model prediction error: {e}")
         return
 
-    # Determine label order from model
+    # ---- Map model classes to female/male indices SAFELY ----
     classes = list(model.classes_)
-    female_idx = classes.index(0) if 0 in classes else (classes.index('female') if 'female' in classes else 0)
-    male_idx   = 1 - female_idx
 
-    female_prob = proba[female_idx]
-    male_prob   = proba[male_idx]
+    def _is_female(c):
+        return str(c).strip().lower() in ("female", "f", "0") or c == 0
 
-    if female_prob > 0.6:
+    def _is_male(c):
+        return str(c).strip().lower() in ("male", "m", "1") or c == 1
+
+    female_idx, male_idx = None, None
+    for i, c in enumerate(classes):
+        if _is_female(c):
+            female_idx = i
+        elif _is_male(c):
+            male_idx = i
+
+    # Fallback: if both still None (unexpected labels), use predict() directly
+    if female_idx is None and male_idx is None:
+        # Just use highest-prob class
+        pred_idx    = int(np.argmax(proba))
+        female_idx  = pred_idx      # treat winning class as female for display
+        male_idx    = 1 - pred_idx
+
+    if female_idx is None:
+        female_idx = 1 - male_idx
+    if male_idx is None:
+        male_idx = 1 - female_idx
+
+    female_prob = float(proba[female_idx])
+    male_prob   = float(proba[male_idx])
+
+    # ---- Use model.predict() as the ground truth for label ----
+    pred_str = str(prediction).strip().lower()
+    if pred_str in ("female", "f", "0") or prediction == 0:
         result, badge_cls = "Female 👩", "pred-female"
-        dominant = female_prob
-    elif male_prob > 0.6:
+    elif pred_str in ("male", "m", "1") or prediction == 1:
         result, badge_cls = "Male 👨", "pred-male"
-        dominant = male_prob
     else:
-        result, badge_cls = "Uncertain ⚠️", "pred-unk"
-        dominant = max(female_prob, male_prob)
+        # fallback to probability
+        if female_prob > male_prob:
+            result, badge_cls = "Female 👩", "pred-female"
+        else:
+            result, badge_cls = "Male 👨", "pred-male"
 
     st.markdown(f"<div class='pred-badge {badge_cls}'>🎯 {result}</div>", unsafe_allow_html=True)
 
@@ -433,7 +502,9 @@ def page_audio(model, scaler):
         uploaded = st.file_uploader("Upload a `.wav` or `.mp3` file", type=["wav","mp3"])
 
         if uploaded:
-            save_path = "temp_upload.wav"
+            # Preserve original extension so librosa/ffmpeg can detect format
+            ext = os.path.splitext(uploaded.name)[-1].lower() or ".wav"
+            save_path = f"temp_upload{ext}"
             with open(save_path, "wb") as f:
                 f.write(uploaded.getbuffer())
 
@@ -455,18 +526,19 @@ def page_audio(model, scaler):
         live_audio = st.audio_input("🎙️ Click to record your voice")
 
         if live_audio:
-            live_path = "temp_live.wav"
-            with open(live_path, "wb") as f:
+            # st.audio_input returns webm/ogg bytes — save with .webm so ffmpeg detects format
+            raw_path = "temp_live_raw.webm"
+            with open(raw_path, "wb") as f:
                 f.write(live_audio.getbuffer())
 
-            st.audio(live_path)
+            st.audio(raw_path)
             st.markdown("<hr class='sec-divider'>", unsafe_allow_html=True)
 
             if model is None:
                 st.error("Model not loaded. Cannot predict.")
             else:
-                with st.spinner("Analysing live recording…"):
-                    predict_and_display(live_path, model, scaler)
+                with st.spinner("Converting & analysing recording…"):
+                    predict_and_display(raw_path, model, scaler)
         st.markdown("</div>", unsafe_allow_html=True)
 
 
