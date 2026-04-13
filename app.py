@@ -12,7 +12,7 @@ st.set_page_config(page_title="👥 Human Clustering Classification", layout="wi
 st.markdown("""
 <style>
 .stApp {
-    background-image: url("https://images.unsplash.com/photo-1610733661495-4aa6ed9fc6f4?q=80&w=869&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D");
+    background-image: url("https://images.unsplash.com/photo-1610733661495-4aa6ed9fc6f4?q=80&w=869&auto=format&fit=crop");
     background-size: cover;
 }
 .glass {
@@ -106,7 +106,7 @@ if not st.session_state.login:
 
 menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Model","Clustering"])
 
-# ================= OVERVIEW (UPDATED ONLY) =================
+# ================= OVERVIEW =================
 if menu=="Overview":
     st.markdown("<div class='glass'>", unsafe_allow_html=True)
 
@@ -115,40 +115,9 @@ if menu=="Overview":
     st.markdown("""
 ### 📌 Project Overview
 
-This is an AI-powered system that analyzes human voice audio and performs:
-
 - 🎤 Gender Detection (Male / Female)
 - 👥 Human Voice Clustering
 - 📊 Data Analysis & Visualization
-
----
-
-### 🚀 Features
-
-✔ Upload audio  
-✔ Live recording  
-✔ Gender prediction  
-✔ EDA dashboard (10 graphs)  
-✔ Model insights  
-✔ Clustering system  
-
----
-
-### 🔄 Workflow
-
-Audio → Feature Extraction → Scaling → Model → Prediction  
-
----
-
-### 🛠 Tech Stack
-
-Python | Streamlit | Librosa | Scikit-learn | Plotly  
-
----
-
-### 💼 Use Cases
-
-Call center analytics, AI voice systems, clustering & classification  
 """)
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -166,22 +135,26 @@ elif menu=="Audio":
         if st.button("Analyze"):
             f = extract_features("temp.wav")
             df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
-            f = scaler.transform(df)
+            f_scaled = scaler.transform(df)
 
-            proba = model.predict_proba(f)
-            female_prob = proba[0][0]
-            male_prob = proba[0][1]
+            proba = model.predict_proba(f_scaled)
 
-            if female_prob > 0.6:
+            # ✅ FIXED MAPPING
+            classes = model.classes_
+            proba_dict = dict(zip(classes, proba[0]))
+
+            female_prob = proba_dict.get('female', 0)
+            male_prob = proba_dict.get('male', 0)
+
+            if female_prob > male_prob:
                 result = "Female 👩"
-            elif male_prob > 0.6:
-                result = "Male 👨"
             else:
-                result = "Uncertain ⚠️"
+                result = "Male 👨"
 
             st.success(f"🎯 Prediction: {result}")
-            st.info(f"Confidence: {proba}")
+            st.info(f"Confidence: {proba_dict}")
 
+    # 🎤 Live Recording
     st.markdown("### 🎤 Record Voice")
     audio = st.audio_input("Click to record")
 
@@ -193,22 +166,24 @@ elif menu=="Audio":
 
         f = extract_features("live.wav")
         df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
-        f = scaler.transform(df)
+        f_scaled = scaler.transform(df)
 
-        proba = model.predict_proba(f)
+        proba = model.predict_proba(f_scaled)
 
-        female_prob = proba[0][0]
-        male_prob = proba[0][1]
+        # ✅ FIXED MAPPING
+        classes = model.classes_
+        proba_dict = dict(zip(classes, proba[0]))
 
-        if female_prob > 0.6:
+        female_prob = proba_dict.get('female', 0)
+        male_prob = proba_dict.get('male', 0)
+
+        if female_prob > male_prob:
             result = "Female 👩"
-        elif male_prob > 0.6:
-            result = "Male 👨"
         else:
-            result = "Uncertain ⚠️"
+            result = "Male 👨"
 
         st.success(f"🎯 Prediction: {result}")
-        st.info(f"Confidence: {proba}")
+        st.info(f"Confidence: {proba_dict}")
 
 # ================= EDA =================
 elif menu=="EDA":
@@ -216,7 +191,6 @@ elif menu=="EDA":
 
     if df is not None:
         st.title("📊 Data Analysis")
-
         st.plotly_chart(px.histogram(df, x="label"))
         st.plotly_chart(px.histogram(df, x="mean_pitch"))
         st.plotly_chart(px.histogram(df, x="mean_spectral_centroid"))
