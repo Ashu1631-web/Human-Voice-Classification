@@ -4,6 +4,7 @@ import pandas as pd
 import pickle
 import plotly.express as px
 from scipy.stats import skew, kurtosis
+import os
 
 # ================= CONFIG =================
 st.set_page_config(page_title="Voice AI Pro", layout="wide")
@@ -39,27 +40,46 @@ def login():
         else:
             st.error("Invalid credentials")
 
+# ================= SAFE MODEL LOAD =================
+@st.cache_resource
+def load_models():
+    try:
+        if not os.path.exists("model.pkl"):
+            st.error("❌ model.pkl not found")
+            return None, None
+
+        if not os.path.exists("scaler.pkl"):
+            st.error("❌ scaler.pkl not found")
+            return None, None
+
+        model = pickle.load(open("model.pkl", "rb"))
+        scaler = pickle.load(open("scaler.pkl", "rb"))
+
+        return model, scaler
+
+    except Exception as e:
+        st.error(f"❌ Model load error: {e}")
+        return None, None
+
+model, scaler = load_models()
+
+# STOP if model not loaded
+if model is None:
+    st.stop()
+
 # ================= DATA =================
 @st.cache_data
 def load_data():
-    import os
     paths = ["data/vocal_gender_features_new.csv","vocal_gender_features_new.csv"]
 
     for p in paths:
         if os.path.exists(p):
             df = pd.read_csv(p)
-            if "label" not in df.columns and "gender" in df.columns:
-                df.rename(columns={"gender":"label"}, inplace=True)
             return df.select_dtypes(include=np.number)
 
-    st.warning("Upload dataset")
-    f = st.file_uploader("Upload CSV", type=["csv"])
-    if f:
-        return pd.read_csv(f)
+    return None
 
-    st.stop()
-
-# ================= FIXED AUDIO FEATURES =================
+# ================= FEATURE EXTRACTION =================
 def extract_features(file):
     import librosa
 
@@ -89,7 +109,12 @@ def extract_features(file):
     features.append(np.mean(rms))
 
     pitch = librosa.yin(y, fmin=50, fmax=300)
-    features.extend([np.mean(pitch), np.min(pitch), np.max(pitch), np.std(pitch)])
+    features.extend([
+        np.mean(pitch),
+        np.min(pitch),
+        np.max(pitch),
+        np.std(pitch)
+    ])
 
     features.append(skew(y))
     features.append(kurtosis(y))
@@ -102,16 +127,6 @@ def extract_features(file):
         features.append(np.std(mfcc[i]))
 
     return np.array(features).reshape(1, -1)
-
-# ================= MODEL LOAD =================
-def load_model(path):
-    try:
-        return pickle.load(open(path,"rb"))
-    except:
-        return None
-
-clf = load_model("model.pkl")
-scaler = load_model("scaler.pkl")
 
 # ================= FEATURE COLUMNS =================
 FEATURE_COLUMNS = [
@@ -133,9 +148,16 @@ if not st.session_state.login:
 else:
     menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Model"])
 
+    # ---------- OVERVIEW ----------
+    if menu == "Overview":
+        st.markdown("<div class='glass'>", unsafe_allow_html=True)
+        st.title("🎤 Voice Gender Detection AI")
+        st.write("AI system to detect gender from voice using ML.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
     # ---------- AUDIO ----------
-    if menu=="Audio":
-        file = st.file_uploader("Upload Audio (.wav recommended)", type=["wav","mp3"])
+    elif menu=="Audio":
+        file = st.file_uploader("Upload Audio (.wav / mp3)", type=["wav","mp3"])
 
         if file:
             st.audio(file)
@@ -145,25 +167,37 @@ else:
 
                 df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
 
-                if scaler:
-                    f = scaler.transform(df)
+                f = scaler.transform(df)
 
-                try:
-                    proba = clf.predict_proba(f)
-                    pred = clf.predict(f)[0]
+                proba = model.predict_proba(f)
+                pred = model.predict(f)[0]
 
-                    female_prob = proba[0][0]
-                    male_prob = proba[0][1]
+                female_prob = proba[0][0]
+                male_prob = proba[0][1]
 
-                    if female_prob > 0.6:
-                        result = "Female 👩"
-                    elif male_prob > 0.6:
-                        result = "Male 👨"
-                    else:
-                        result = "Uncertain ⚠️"
+                if female_prob > 0.6:
+                    result = "Female 👩"
+                elif male_prob > 0.6:
+                    result = "Male 👨"
+                else:
+                    result = "Uncertain ⚠️"
 
-                    st.success(f"🎯 Prediction: {result}")
-                    st.info(f"Confidence: {proba}")
+                st.success(f"🎯 Prediction: {result}")
+                st.info(f"Confidence: {proba}")
 
-                except Exception as e:
-                    st.error(f"Prediction error: {e}")
+    # ---------- EDA ----------
+    elif menu=="EDA":
+        df = load_data()
+        if df is not None:
+            st.dataframe(df.head())
+            col = st.selectbox("Select Feature", df.columns)
+            st.plotly_chart(px.histogram(df, x=col))
+            st.plotly_chart(px.box(df, y=col))
+        else:
+            st.warning("Dataset not found")
+
+    # ---------- MODEL ----------
+    elif menu=="Model":
+        df = load_data()
+        if df is not None:
+            st.plotly_chart(px.imshow(df.corr()))
