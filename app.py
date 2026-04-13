@@ -8,47 +8,18 @@ import os
 
 st.set_page_config(page_title="👥 Human Clustering Classification", layout="wide")
 
-# ================= THEME =================
-theme = st.sidebar.toggle("🌗 Dark / Light Mode", value=True)
-text_color = "#FFFFFF" if theme else "#000000"
-
-# ================= UI FIXED =================
-st.markdown(f"""
+# ================= UI =================
+st.markdown("""
 <style>
-.stApp {{
-    background-image: url("https://images.unsplash.com/photo-1610733661495-4aa6ed9fc6f4?q=80&w=869&auto=format&fit=crop");
+.stApp {
+    background-image: url("https://images.unsplash.com/photo-1610733661495-4aa6ed9fc6f4?q=80&w=869&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D");
     background-size: cover;
-    background-attachment: fixed;
-    color: {text_color};
-}}
-
-/* subtle overlay animation */
-.stApp::before {{
-    content: "";
-    position: fixed;
-    top:0; left:0;
-    width:100%; height:100%;
-    background: linear-gradient(270deg, rgba(0,0,0,0.4), rgba(0,0,0,0.6));
-    animation: fadeBG 10s ease-in-out infinite;
-    z-index:0;
-}}
-
-@keyframes fadeBG {{
-    0% {{opacity:0.3}}
-    50% {{opacity:0.6}}
-    100% {{opacity:0.3}}
-}}
-
-.glass {{
-    background: rgba(0,0,0,0.65);
-    padding: 25px;
-    border-radius: 20px;
-    backdrop-filter: blur(10px);
-    box-shadow: 0px 0px 20px rgba(0,0,0,0.5);
-    margin-top: 100px;
-    position: relative;
-    z-index: 1;
-}}
+}
+.glass {
+    background: rgba(0,0,0,0.7);
+    padding: 20px;
+    border-radius: 15px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -57,10 +28,7 @@ if "login" not in st.session_state:
     st.session_state.login = False
 
 def login():
-    st.markdown("<div class='glass'>", unsafe_allow_html=True)
-
     st.title("🔐 Human Clustering Classification Login")
-
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
 
@@ -70,9 +38,7 @@ def login():
         else:
             st.error("Invalid credentials ❌")
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ================= LOAD =================
+# ================= MODEL =================
 @st.cache_resource
 def load_models():
     model = pickle.load(open("model.pkl","rb"))
@@ -81,69 +47,115 @@ def load_models():
 
 model, scaler = load_models()
 
+# ================= DATA =================
 @st.cache_data
 def load_data():
     if os.path.exists("vocal_gender_features_new.csv"):
         return pd.read_csv("vocal_gender_features_new.csv")
     return None
 
-# ================= FEATURE EXTRACTION =================
+# ================= FEATURES =================
 def extract_features(file):
     import librosa
     y, sr = librosa.load(file, duration=3)
 
     f = []
+    sc = librosa.feature.spectral_centroid(y=y, sr=sr)
+    f.extend([np.mean(sc), np.std(sc)])
+
+    sb = librosa.feature.spectral_bandwidth(y=y, sr=sr)
+    f.extend([np.mean(sb), np.std(sb)])
+
+    f.append(np.mean(librosa.feature.spectral_contrast(y=y, sr=sr)))
+    f.append(np.mean(librosa.feature.spectral_flatness(y=y)))
+    f.append(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr)))
     f.append(np.mean(librosa.feature.zero_crossing_rate(y)))
     f.append(np.mean(librosa.feature.rms(y=y)))
-    f.append(np.log(np.sum(y**2)+1e-10))
 
     pitch = librosa.yin(y, fmin=50, fmax=300)
-    f.append(np.mean(pitch))
+    f.extend([np.mean(pitch), np.min(pitch), np.max(pitch), np.std(pitch)])
 
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=1)
-    f.append(np.mean(mfcc))
+    f.append(skew(y))
+    f.append(kurtosis(y))
+    f.append(-np.sum(y**2 * np.log(y**2 + 1e-10)))
+    f.append(np.log(np.sum(y**2) + 1e-10))
 
-    return np.array(f).reshape(1,-1)
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+    for i in range(13):
+        f.append(np.mean(mfcc[i]))
+        f.append(np.std(mfcc[i]))
 
-FEATURE_COLUMNS = ["zero_crossing_rate","rms_energy","log_energy","mean_pitch","mfcc_1_mean"]
+    return np.array(f).reshape(1, -1)
+
+FEATURE_COLUMNS = [
+ 'mean_spectral_centroid','std_spectral_centroid','mean_spectral_bandwidth','std_spectral_bandwidth',
+ 'mean_spectral_contrast','mean_spectral_flatness','mean_spectral_rolloff','zero_crossing_rate',
+ 'rms_energy','mean_pitch','min_pitch','max_pitch','std_pitch',
+ 'spectral_skew','spectral_kurtosis','energy_entropy','log_energy',
+ 'mfcc_1_mean','mfcc_1_std','mfcc_2_mean','mfcc_2_std','mfcc_3_mean','mfcc_3_std',
+ 'mfcc_4_mean','mfcc_4_std','mfcc_5_mean','mfcc_5_std','mfcc_6_mean','mfcc_6_std',
+ 'mfcc_7_mean','mfcc_7_std','mfcc_8_mean','mfcc_8_std','mfcc_9_mean','mfcc_9_std',
+ 'mfcc_10_mean','mfcc_10_std','mfcc_11_mean','mfcc_11_std','mfcc_12_mean','mfcc_12_std',
+ 'mfcc_13_mean','mfcc_13_std'
+]
 
 # ================= MAIN =================
 if not st.session_state.login:
     login()
     st.stop()
 
-menu = st.sidebar.radio("🚀 Navigation", ["Overview","Audio","EDA","Classification","Clustering"])
+menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Model","Clustering"])
 
-# ================= OVERVIEW =================
+# ================= OVERVIEW (UPDATED ONLY) =================
 if menu=="Overview":
     st.markdown("<div class='glass'>", unsafe_allow_html=True)
 
     st.title("👥 Human Voice Clustering AI")
 
     st.markdown("""
-### 🧩 Introduction
-Voice-based ML system for gender classification & clustering.
+### 📌 Project Overview
 
-### ❗ Problem
-- Detect gender
-- Cluster voice patterns
-- Deploy easily
+This is an AI-powered system that analyzes human voice audio and performs:
 
-### 💡 Solution
-- SVM Classification  
-- KMeans Clustering  
+- 🎤 Gender Detection (Male / Female)
+- 👥 Human Voice Clustering
+- 📊 Data Analysis & Visualization
 
-### 🛠 Tech
-Python | pandas | sklearn | Streamlit
+---
+
+### 🚀 Features
+
+✔ Upload audio  
+✔ Live recording  
+✔ Gender prediction  
+✔ EDA dashboard (10 graphs)  
+✔ Model insights  
+✔ Clustering system  
+
+---
+
+### 🔄 Workflow
+
+Audio → Feature Extraction → Scaling → Model → Prediction  
+
+---
+
+### 🛠 Tech Stack
+
+Python | Streamlit | Librosa | Scikit-learn | Plotly  
+
+---
+
+### 💼 Use Cases
+
+Call center analytics, AI voice systems, clustering & classification  
 """)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= AUDIO =================
 elif menu=="Audio":
-    st.markdown("<div class='glass'>", unsafe_allow_html=True)
-
-    file = st.file_uploader("Upload Audio", type=["wav","mp3"])
+    file = st.file_uploader("Upload Audio (.wav / mp3)", type=["wav","mp3"])
 
     if file:
         with open("temp.wav","wb") as f:
@@ -156,78 +168,77 @@ elif menu=="Audio":
             df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
             f = scaler.transform(df)
 
-            pred = model.predict(f)[0]
             proba = model.predict_proba(f)
+            female_prob = proba[0][0]
+            male_prob = proba[0][1]
 
-            st.success(f"🎯 Prediction: {pred}")
+            if female_prob > 0.6:
+                result = "Female 👩"
+            elif male_prob > 0.6:
+                result = "Male 👨"
+            else:
+                result = "Uncertain ⚠️"
+
+            st.success(f"🎯 Prediction: {result}")
             st.info(f"Confidence: {proba}")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("### 🎤 Record Voice")
+    audio = st.audio_input("Click to record")
+
+    if audio:
+        with open("live.wav","wb") as f:
+            f.write(audio.getbuffer())
+
+        st.audio("live.wav")
+
+        f = extract_features("live.wav")
+        df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
+        f = scaler.transform(df)
+
+        proba = model.predict_proba(f)
+
+        female_prob = proba[0][0]
+        male_prob = proba[0][1]
+
+        if female_prob > 0.6:
+            result = "Female 👩"
+        elif male_prob > 0.6:
+            result = "Male 👨"
+        else:
+            result = "Uncertain ⚠️"
+
+        st.success(f"🎯 Prediction: {result}")
+        st.info(f"Confidence: {proba}")
 
 # ================= EDA =================
 elif menu=="EDA":
     df = load_data()
 
     if df is not None:
-        st.title("📊 EDA Dashboard")
+        st.title("📊 Data Analysis")
 
-        st.plotly_chart(px.histogram(df, x="label", color="label"))
+        st.plotly_chart(px.histogram(df, x="label"))
+        st.plotly_chart(px.histogram(df, x="mean_pitch"))
+        st.plotly_chart(px.histogram(df, x="mean_spectral_centroid"))
+        st.plotly_chart(px.histogram(df, x="mean_spectral_bandwidth"))
+        st.plotly_chart(px.histogram(df, x="rms_energy"))
+        st.plotly_chart(px.box(df, x="label", y="mean_pitch"))
+        st.plotly_chart(px.histogram(df, x="mfcc_1_mean"))
+        st.plotly_chart(px.histogram(df, x="mfcc_2_mean"))
         st.plotly_chart(px.imshow(df.corr()))
+        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="label"))
 
-        for f in ["mean_pitch","zero_crossing_rate","rms_energy","log_energy","mfcc_1_mean"]:
-            st.plotly_chart(px.box(df, x="label", y=f, color="label"))
-
-# ================= CLASSIFICATION =================
-elif menu=="Classification":
+# ================= MODEL =================
+elif menu=="Model":
     df = load_data()
 
     if df is not None:
-        st.title("🤖 SVM Classification")
-
-        from sklearn.model_selection import train_test_split
-        from sklearn.svm import SVC
-        from sklearn.feature_selection import SelectKBest, f_classif
-        from sklearn.preprocessing import StandardScaler
-        from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
-        import matplotlib.pyplot as plt
-        import seaborn as sns
-
-        st.subheader("⚙️ Settings")
-
-        k = st.slider("Features", 5, 43, 5)
-        kernel = st.selectbox("Kernel", ["linear","rbf"])
-        C = st.slider("C", 0.01,10.0,1.0)
-
-        X = df.drop("label", axis=1)
-        y = df["label"]
-
-        selector = SelectKBest(f_classif, k=k)
-        X = selector.fit_transform(X,y)
-
-        X_train, X_test, y_train, y_test = train_test_split(X,y,test_size=0.2)
-
-        scaler_local = StandardScaler()
-        X_train = scaler_local.fit_transform(X_train)
-        X_test = scaler_local.transform(X_test)
-
-        clf = SVC(kernel=kernel, C=C, probability=True)
-        clf.fit(X_train,y_train)
-
-        y_pred = clf.predict(X_test)
-
-        st.text(classification_report(y_test,y_pred))
-
-        cm = confusion_matrix(y_test,y_pred)
-        fig, ax = plt.subplots()
-        sns.heatmap(cm, annot=True, fmt="d", ax=ax)
-        st.pyplot(fig)
-
-        y_prob = clf.predict_proba(X_test)[:,1]
-        fpr, tpr, _ = roc_curve(y_test.map({"female":0,"male":1}), y_prob)
-
-        fig2, ax2 = plt.subplots()
-        ax2.plot(fpr,tpr)
-        st.pyplot(fig2)
+        st.bar_chart(df.drop("label", axis=1).mean().sort_values(ascending=False).head(10))
+        st.plotly_chart(px.histogram(df, x="label"))
+        st.plotly_chart(px.histogram(df, x="mean_pitch"))
+        st.plotly_chart(px.histogram(df, x="rms_energy"))
+        st.plotly_chart(px.box(df, x="label", y="mean_pitch"))
+        st.plotly_chart(px.imshow(df.corr()))
 
 # ================= CLUSTERING =================
 elif menu=="Clustering":
@@ -238,9 +249,11 @@ elif menu=="Clustering":
         from sklearn.preprocessing import StandardScaler
 
         X = df.drop("label", axis=1)
-        X = StandardScaler().fit_transform(X)
+        X_scaled = StandardScaler().fit_transform(X)
 
-        kmeans = KMeans(n_clusters=2)
-        df["cluster"] = kmeans.fit_predict(X)
+        kmeans = KMeans(n_clusters=2, random_state=42)
+        df["cluster"] = kmeans.fit_predict(X_scaled)
 
+        st.plotly_chart(px.histogram(df, x="cluster"))
         st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="cluster"))
+        st.plotly_chart(px.histogram(df, x="cluster", color="label"))
