@@ -95,7 +95,39 @@ def extract_features(file):
 
     return np.array(f).reshape(1, -1)
 
-FEATURE_COLUMNS = [f'f{i}' for i in range(44)]
+def predict(audio_path):
+    f = extract_features(audio_path)
+
+    # 🔥 AUTO column fix (NO mismatch ever)
+    df = pd.DataFrame(f)
+    df.columns = [f"f{i}" for i in range(df.shape[1])]
+
+    f_scaled = scaler.transform(df)
+
+    proba = model.predict_proba(f_scaled)
+    classes = list(model.classes_)
+
+    classes_lower = [str(c).lower() for c in classes]
+
+    female_index = 0
+    male_index = 1
+
+    if "female" in classes_lower:
+        female_index = classes_lower.index("female")
+    elif "f" in classes_lower:
+        female_index = classes_lower.index("f")
+
+    if "male" in classes_lower:
+        male_index = classes_lower.index("male")
+    elif "m" in classes_lower:
+        male_index = classes_lower.index("m")
+
+    female_prob = proba[0][female_index]
+    male_prob = proba[0][male_index]
+
+    result = "Female 👩" if female_prob > male_prob else "Male 👨"
+
+    return result, female_prob, male_prob
 
 # ================= PREDICT =================
 def predict(audio_path):
