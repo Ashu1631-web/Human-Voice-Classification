@@ -12,7 +12,7 @@ st.set_page_config(page_title="👥 Human Clustering Classification", layout="wi
 st.markdown("""
 <style>
 .stApp {
-    background-image: url("https://images.unsplash.com/photo-1610733661495-4aa6ed9fc6f4?q=80&w=869&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D");
+    background-image: url("https://images.unsplash.com/photo-1610733661495-4aa6ed9fc6f4?q=80&w=869&auto=format&fit=crop");
     background-size: cover;
 }
 .glass {
@@ -54,7 +54,7 @@ def load_data():
         return pd.read_csv("vocal_gender_features_new.csv")
     return None
 
-# ================= FEATURES =================
+# ================= FEATURE EXTRACTION =================
 def extract_features(file):
     import librosa
     y, sr = librosa.load(file, duration=3)
@@ -104,58 +104,18 @@ if not st.session_state.login:
     login()
     st.stop()
 
-menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Model","Clustering"])
+menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Classification","Clustering"])
 
-# ================= OVERVIEW (UPDATED ONLY) =================
+# ================= OVERVIEW =================
 if menu=="Overview":
     st.markdown("<div class='glass'>", unsafe_allow_html=True)
-
     st.title("👥 Human Voice Clustering AI")
-
-    st.markdown("""
-### 📌 Project Overview
-
-This is an AI-powered system that analyzes human voice audio and performs:
-
-- 🎤 Gender Detection (Male / Female)
-- 👥 Human Voice Clustering
-- 📊 Data Analysis & Visualization
-
----
-
-### 🚀 Features
-
-✔ Upload audio  
-✔ Live recording  
-✔ Gender prediction  
-✔ EDA dashboard (10 graphs)  
-✔ Model insights  
-✔ Clustering system  
-
----
-
-### 🔄 Workflow
-
-Audio → Feature Extraction → Scaling → Model → Prediction  
-
----
-
-### 🛠 Tech Stack
-
-Python | Streamlit | Librosa | Scikit-learn | Plotly  
-
----
-
-### 💼 Use Cases
-
-Call center analytics, AI voice systems, clustering & classification  
-""")
-
+    st.markdown("Audio → Feature Extraction → Scaling → Model → Prediction")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= AUDIO =================
 elif menu=="Audio":
-    file = st.file_uploader("Upload Audio (.wav / mp3)", type=["wav","mp3"])
+    file = st.file_uploader("Upload Audio", type=["wav","mp3"])
 
     if file:
         with open("temp.wav","wb") as f:
@@ -166,94 +126,105 @@ elif menu=="Audio":
         if st.button("Analyze"):
             f = extract_features("temp.wav")
             df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
-            f = scaler.transform(df)
+            f_scaled = scaler.transform(df)
 
-            proba = model.predict_proba(f)
-            female_prob = proba[0][0]
-            male_prob = proba[0][1]
+            proba = model.predict_proba(f_scaled)
+            classes = model.classes_
+            proba_dict = dict(zip(classes, proba[0]))
 
-            if female_prob > 0.6:
-                result = "Female 👩"
-            elif male_prob > 0.6:
-                result = "Male 👨"
-            else:
-                result = "Uncertain ⚠️"
+            female_prob = proba_dict.get('female', 0)
+            male_prob = proba_dict.get('male', 0)
+
+            result = "Female 👩" if female_prob > male_prob else "Male 👨"
 
             st.success(f"🎯 Prediction: {result}")
-            st.info(f"Confidence: {proba}")
-
-    st.markdown("### 🎤 Record Voice")
-    audio = st.audio_input("Click to record")
-
-    if audio:
-        with open("live.wav","wb") as f:
-            f.write(audio.getbuffer())
-
-        st.audio("live.wav")
-
-        f = extract_features("live.wav")
-        df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
-        f = scaler.transform(df)
-
-        proba = model.predict_proba(f)
-
-        female_prob = proba[0][0]
-        male_prob = proba[0][1]
-
-        if female_prob > 0.6:
-            result = "Female 👩"
-        elif male_prob > 0.6:
-            result = "Male 👨"
-        else:
-            result = "Uncertain ⚠️"
-
-        st.success(f"🎯 Prediction: {result}")
-        st.info(f"Confidence: {proba}")
+            st.info(f"Confidence: {proba_dict}")
 
 # ================= EDA =================
 elif menu=="EDA":
     df = load_data()
-
     if df is not None:
-        st.title("📊 Data Analysis")
+        st.title("📊 EDA Dashboard")
 
-        st.plotly_chart(px.histogram(df, x="label"))
-        st.plotly_chart(px.histogram(df, x="mean_pitch"))
-        st.plotly_chart(px.histogram(df, x="mean_spectral_centroid"))
-        st.plotly_chart(px.histogram(df, x="mean_spectral_bandwidth"))
-        st.plotly_chart(px.histogram(df, x="rms_energy"))
-        st.plotly_chart(px.box(df, x="label", y="mean_pitch"))
-        st.plotly_chart(px.histogram(df, x="mfcc_1_mean"))
-        st.plotly_chart(px.histogram(df, x="mfcc_2_mean"))
-        st.plotly_chart(px.imshow(df.corr()))
-        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="label"))
+        st.plotly_chart(px.histogram(df, x="label", title="Gender Distribution"))
+        st.plotly_chart(px.histogram(df, x="mean_pitch", color="label", title="Pitch Distribution"))
+        st.plotly_chart(px.box(df, x="label", y="mean_pitch", title="Pitch Comparison"))
+        st.plotly_chart(px.histogram(df, x="rms_energy", color="label", title="Energy Distribution"))
+        st.plotly_chart(px.imshow(df.corr(), title="Correlation Heatmap"))
+        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="label", title="Pitch vs Energy"))
 
-# ================= MODEL =================
-elif menu=="Model":
+# ================= CLASSIFICATION =================
+elif menu=="Classification":
+    st.title("🧠 SVM Classification")
+
     df = load_data()
-
     if df is not None:
-        st.bar_chart(df.drop("label", axis=1).mean().sort_values(ascending=False).head(10))
-        st.plotly_chart(px.histogram(df, x="label"))
-        st.plotly_chart(px.histogram(df, x="mean_pitch"))
-        st.plotly_chart(px.histogram(df, x="rms_energy"))
-        st.plotly_chart(px.box(df, x="label", y="mean_pitch"))
-        st.plotly_chart(px.imshow(df.corr()))
+        from sklearn.model_selection import train_test_split
+        from sklearn.svm import SVC
+        from sklearn.feature_selection import SelectKBest, f_classif
+        from sklearn.preprocessing import StandardScaler
+
+        X = df.drop("label", axis=1)
+        y = df["label"]
+
+        X_scaled = StandardScaler().fit_transform(X)
+
+        k = st.slider("Select Features", 5, 20, 10)
+
+        selector = SelectKBest(f_classif, k=k)
+        X_selected = selector.fit_transform(X_scaled, y)
+
+        selected = X.columns[selector.get_support()]
+        scores = selector.scores_[selector.get_support()]
+
+        X_train, X_test, y_train, y_test = train_test_split(X_selected, y, test_size=0.2)
+
+        model_svm = SVC(kernel="linear")
+        model_svm.fit(X_train, y_train)
+
+        acc = model_svm.score(X_test, y_test)
+        st.success(f"Accuracy: {round(acc*100,2)}%")
+
+        df_feat = pd.DataFrame({"Feature": selected, "Score": scores}).sort_values("Score")
+
+        st.plotly_chart(px.bar(df_feat, x="Score", y="Feature", orientation='h', title="Top Features"))
 
 # ================= CLUSTERING =================
 elif menu=="Clustering":
-    df = load_data()
+    st.title("🔍 Clustering Analysis")
 
+    df = load_data()
     if df is not None:
-        from sklearn.cluster import KMeans
         from sklearn.preprocessing import StandardScaler
+        from sklearn.cluster import KMeans
+        from sklearn.metrics import silhouette_score
+        from sklearn.decomposition import PCA
 
         X = df.drop("label", axis=1)
         X_scaled = StandardScaler().fit_transform(X)
 
-        kmeans = KMeans(n_clusters=2, random_state=42)
-        df["cluster"] = kmeans.fit_predict(X_scaled)
+        kmeans = KMeans(n_clusters=2)
+        labels = kmeans.fit_predict(X_scaled)
 
-        st.plotly_chart(px.histogram(df, x="cluster"))
-        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="cluster"))
-        st.plotly_chart(px.histogram(df, x="cluster", color="label"))
+        score = silhouette_score(X_scaled, labels)
+
+        st.subheader("Silhouette Score")
+        st.write(score)
+
+        pca = PCA(n_components=2)
+        X_pca = pca.fit_transform(X_scaled)
+
+        pca_df = pd.DataFrame({
+            "PC1": X_pca[:,0],
+            "PC2": X_pca[:,1],
+            "Cluster": labels,
+            "Actual": df["label"]
+        })
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.plotly_chart(px.scatter(pca_df, x="PC1", y="PC2", color="Cluster", title="Clusters"))
+
+        with col2:
+            st.plotly_chart(px.scatter(pca_df, x="PC1", y="PC2", color="Actual", title="Actual"))
