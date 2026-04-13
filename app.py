@@ -6,8 +6,7 @@ import plotly.express as px
 from scipy.stats import skew, kurtosis
 import os
 
-# ================= CONFIG =================
-st.set_page_config(page_title="Voice AI Pro", layout="wide")
+st.set_page_config(page_title="👥 Human Clustering Classification", layout="wide")
 
 # ================= UI =================
 st.markdown("""
@@ -21,7 +20,6 @@ st.markdown("""
     padding: 20px;
     border-radius: 15px;
 }
-h1,h2,h3 {color:#00eaff;text-align:center;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -30,7 +28,7 @@ if "login" not in st.session_state:
     st.session_state.login = False
 
 def login():
-    st.title("🎙️ Voice AI Login")
+    st.title("🔐 Human Clustering Classification Login")
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
 
@@ -38,97 +36,57 @@ def login():
         if (u=="admin" and p=="admin123") or (u=="user" and p=="user123"):
             st.session_state.login = True
         else:
-            st.error("Invalid credentials")
+            st.error("Invalid credentials ❌")
 
-# ================= SAFE MODEL LOAD =================
+# ================= MODEL =================
 @st.cache_resource
 def load_models():
-    try:
-        if not os.path.exists("model.pkl"):
-            st.error("❌ model.pkl not found")
-            return None, None
-
-        if not os.path.exists("scaler.pkl"):
-            st.error("❌ scaler.pkl not found")
-            return None, None
-
-        model = pickle.load(open("model.pkl", "rb"))
-        scaler = pickle.load(open("scaler.pkl", "rb"))
-
-        return model, scaler
-
-    except Exception as e:
-        st.error(f"❌ Model load error: {e}")
-        return None, None
+    model = pickle.load(open("model.pkl","rb"))
+    scaler = pickle.load(open("scaler.pkl","rb"))
+    return model, scaler
 
 model, scaler = load_models()
-
-# STOP if model not loaded
-if model is None:
-    st.stop()
 
 # ================= DATA =================
 @st.cache_data
 def load_data():
-    paths = ["data/vocal_gender_features_new.csv","vocal_gender_features_new.csv"]
-
-    for p in paths:
-        if os.path.exists(p):
-            df = pd.read_csv(p)
-            return df.select_dtypes(include=np.number)
-
+    if os.path.exists("vocal_gender_features_new.csv"):
+        return pd.read_csv("vocal_gender_features_new.csv")
     return None
 
-# ================= FEATURE EXTRACTION =================
+# ================= FEATURES =================
 def extract_features(file):
     import librosa
-
     y, sr = librosa.load(file, duration=3)
 
-    features = []
-
+    f = []
     sc = librosa.feature.spectral_centroid(y=y, sr=sr)
-    features.extend([np.mean(sc), np.std(sc)])
+    f.extend([np.mean(sc), np.std(sc)])
 
     sb = librosa.feature.spectral_bandwidth(y=y, sr=sr)
-    features.extend([np.mean(sb), np.std(sb)])
+    f.extend([np.mean(sb), np.std(sb)])
 
-    contrast = librosa.feature.spectral_contrast(y=y, sr=sr)
-    features.append(np.mean(contrast))
-
-    flatness = librosa.feature.spectral_flatness(y=y)
-    features.append(np.mean(flatness))
-
-    rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)
-    features.append(np.mean(rolloff))
-
-    zcr = librosa.feature.zero_crossing_rate(y)
-    features.append(np.mean(zcr))
-
-    rms = librosa.feature.rms(y=y)
-    features.append(np.mean(rms))
+    f.append(np.mean(librosa.feature.spectral_contrast(y=y, sr=sr)))
+    f.append(np.mean(librosa.feature.spectral_flatness(y=y)))
+    f.append(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr)))
+    f.append(np.mean(librosa.feature.zero_crossing_rate(y)))
+    f.append(np.mean(librosa.feature.rms(y=y)))
 
     pitch = librosa.yin(y, fmin=50, fmax=300)
-    features.extend([
-        np.mean(pitch),
-        np.min(pitch),
-        np.max(pitch),
-        np.std(pitch)
-    ])
+    f.extend([np.mean(pitch), np.min(pitch), np.max(pitch), np.std(pitch)])
 
-    features.append(skew(y))
-    features.append(kurtosis(y))
-    features.append(-np.sum(y**2 * np.log(y**2 + 1e-10)))
-    features.append(np.log(np.sum(y**2) + 1e-10))
+    f.append(skew(y))
+    f.append(kurtosis(y))
+    f.append(-np.sum(y**2 * np.log(y**2 + 1e-10)))
+    f.append(np.log(np.sum(y**2) + 1e-10))
 
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
     for i in range(13):
-        features.append(np.mean(mfcc[i]))
-        features.append(np.std(mfcc[i]))
+        f.append(np.mean(mfcc[i]))
+        f.append(np.std(mfcc[i]))
 
-    return np.array(features).reshape(1, -1)
+    return np.array(f).reshape(1, -1)
 
-# ================= FEATURE COLUMNS =================
 FEATURE_COLUMNS = [
  'mean_spectral_centroid','std_spectral_centroid','mean_spectral_bandwidth','std_spectral_bandwidth',
  'mean_spectral_contrast','mean_spectral_flatness','mean_spectral_rolloff','zero_crossing_rate',
@@ -144,60 +102,158 @@ FEATURE_COLUMNS = [
 # ================= MAIN =================
 if not st.session_state.login:
     login()
+    st.stop()
 
-else:
-    menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Model"])
+menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Model","Clustering"])
 
-    # ---------- OVERVIEW ----------
-    if menu == "Overview":
-        st.markdown("<div class='glass'>", unsafe_allow_html=True)
-        st.title("🎤 Voice Gender Detection AI")
-        st.write("AI system to detect gender from voice using ML.")
-        st.markdown("</div>", unsafe_allow_html=True)
+# ================= OVERVIEW (UPDATED ONLY) =================
+if menu=="Overview":
+    st.markdown("<div class='glass'>", unsafe_allow_html=True)
 
-    # ---------- AUDIO ----------
-    elif menu=="Audio":
-        file = st.file_uploader("Upload Audio (.wav / mp3)", type=["wav","mp3"])
+    st.title("👥 Human Voice Clustering AI")
 
-        if file:
-            st.audio(file)
+    st.markdown("""
+### 📌 Project Overview
 
-            if st.button("Analyze"):
-                f = extract_features(file)
+This is an AI-powered system that analyzes human voice audio and performs:
 
-                df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
+- 🎤 Gender Detection (Male / Female)
+- 👥 Human Voice Clustering
+- 📊 Data Analysis & Visualization
 
-                f = scaler.transform(df)
+---
 
-                proba = model.predict_proba(f)
-                pred = model.predict(f)[0]
+### 🚀 Features
 
-                female_prob = proba[0][0]
-                male_prob = proba[0][1]
+✔ Upload audio  
+✔ Live recording  
+✔ Gender prediction  
+✔ EDA dashboard (10 graphs)  
+✔ Model insights  
+✔ Clustering system  
 
-                if female_prob > 0.6:
-                    result = "Female 👩"
-                elif male_prob > 0.6:
-                    result = "Male 👨"
-                else:
-                    result = "Uncertain ⚠️"
+---
 
-                st.success(f"🎯 Prediction: {result}")
-                st.info(f"Confidence: {proba}")
+### 🔄 Workflow
 
-    # ---------- EDA ----------
-    elif menu=="EDA":
-        df = load_data()
-        if df is not None:
-            st.dataframe(df.head())
-            col = st.selectbox("Select Feature", df.columns)
-            st.plotly_chart(px.histogram(df, x=col))
-            st.plotly_chart(px.box(df, y=col))
+Audio → Feature Extraction → Scaling → Model → Prediction  
+
+---
+
+### 🛠 Tech Stack
+
+Python | Streamlit | Librosa | Scikit-learn | Plotly  
+
+---
+
+### 💼 Use Cases
+
+Call center analytics, AI voice systems, clustering & classification  
+""")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ================= AUDIO =================
+elif menu=="Audio":
+    file = st.file_uploader("Upload Audio (.wav / mp3)", type=["wav","mp3"])
+
+    if file:
+        with open("temp.wav","wb") as f:
+            f.write(file.getbuffer())
+
+        st.audio("temp.wav")
+
+        if st.button("Analyze"):
+            f = extract_features("temp.wav")
+            df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
+            f = scaler.transform(df)
+
+            proba = model.predict_proba(f)
+            female_prob = proba[0][0]
+            male_prob = proba[0][1]
+
+            if female_prob > 0.6:
+                result = "Female 👩"
+            elif male_prob > 0.6:
+                result = "Male 👨"
+            else:
+                result = "Uncertain ⚠️"
+
+            st.success(f"🎯 Prediction: {result}")
+            st.info(f"Confidence: {proba}")
+
+    st.markdown("### 🎤 Record Voice")
+    audio = st.audio_input("Click to record")
+
+    if audio:
+        with open("live.wav","wb") as f:
+            f.write(audio.getbuffer())
+
+        st.audio("live.wav")
+
+        f = extract_features("live.wav")
+        df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
+        f = scaler.transform(df)
+
+        proba = model.predict_proba(f)
+
+        female_prob = proba[0][0]
+        male_prob = proba[0][1]
+
+        if female_prob > 0.6:
+            result = "Female 👩"
+        elif male_prob > 0.6:
+            result = "Male 👨"
         else:
-            st.warning("Dataset not found")
+            result = "Uncertain ⚠️"
 
-    # ---------- MODEL ----------
-    elif menu=="Model":
-        df = load_data()
-        if df is not None:
-            st.plotly_chart(px.imshow(df.corr()))
+        st.success(f"🎯 Prediction: {result}")
+        st.info(f"Confidence: {proba}")
+
+# ================= EDA =================
+elif menu=="EDA":
+    df = load_data()
+
+    if df is not None:
+        st.title("📊 Data Analysis")
+
+        st.plotly_chart(px.histogram(df, x="label"))
+        st.plotly_chart(px.histogram(df, x="mean_pitch"))
+        st.plotly_chart(px.histogram(df, x="mean_spectral_centroid"))
+        st.plotly_chart(px.histogram(df, x="mean_spectral_bandwidth"))
+        st.plotly_chart(px.histogram(df, x="rms_energy"))
+        st.plotly_chart(px.box(df, x="label", y="mean_pitch"))
+        st.plotly_chart(px.histogram(df, x="mfcc_1_mean"))
+        st.plotly_chart(px.histogram(df, x="mfcc_2_mean"))
+        st.plotly_chart(px.imshow(df.corr()))
+        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="label"))
+
+# ================= MODEL =================
+elif menu=="Model":
+    df = load_data()
+
+    if df is not None:
+        st.bar_chart(df.drop("label", axis=1).mean().sort_values(ascending=False).head(10))
+        st.plotly_chart(px.histogram(df, x="label"))
+        st.plotly_chart(px.histogram(df, x="mean_pitch"))
+        st.plotly_chart(px.histogram(df, x="rms_energy"))
+        st.plotly_chart(px.box(df, x="label", y="mean_pitch"))
+        st.plotly_chart(px.imshow(df.corr()))
+
+# ================= CLUSTERING =================
+elif menu=="Clustering":
+    df = load_data()
+
+    if df is not None:
+        from sklearn.cluster import KMeans
+        from sklearn.preprocessing import StandardScaler
+
+        X = df.drop("label", axis=1)
+        X_scaled = StandardScaler().fit_transform(X)
+
+        kmeans = KMeans(n_clusters=2, random_state=42)
+        df["cluster"] = kmeans.fit_predict(X_scaled)
+
+        st.plotly_chart(px.histogram(df, x="cluster"))
+        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="cluster"))
+        st.plotly_chart(px.histogram(df, x="cluster", color="label"))
