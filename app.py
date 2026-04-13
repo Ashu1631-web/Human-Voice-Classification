@@ -33,7 +33,7 @@ st.markdown("""
    simpler: we always keep a subtle dark mesh; the login card gets its own overlay. */
 
 /* ---- HIDE DEFAULT STREAMLIT CHROME ---- */
-#MainMenu, footer, header { visibility: hidden; }
+#MainMenu, footer { visibility: hidden; }
 .block-container { padding-top: 1.5rem !important; }
 
 /* ---- SIDEBAR ---- */
