@@ -102,7 +102,7 @@ def predict(audio_path):
     df = pd.DataFrame(f)
     df.columns = [f"f{i}" for i in range(df.shape[1])]
 
-    f_scaled = scaler.transform(df)
+    f_scaled = scaler.transform(df.values)
 
     proba = model.predict_proba(f_scaled)
     classes = list(model.classes_)
