@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import pickle
 import plotly.express as px
+from scipy.stats import skew, kurtosis
 
 # ================= CONFIG =================
 st.set_page_config(page_title="Voice AI Pro", layout="wide")
@@ -58,37 +59,72 @@ def load_data():
 
     st.stop()
 
-# ================= AUDIO FEATURES =================
+# ================= FIXED AUDIO FEATURES =================
 def extract_features(file):
-    try:
-        import librosa
-        y, sr = librosa.load(file, sr=None)
+    import librosa
 
-        features = []
-        features.append(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)))
-        features.append(np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr)))
-        features.append(np.mean(librosa.feature.zero_crossing_rate(y)))
-        features.append(np.mean(librosa.feature.rms(y=y)))
+    y, sr = librosa.load(file, duration=3)
 
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=11)
-        for m in mfcc:
-            features.append(np.mean(m))
+    features = []
 
-        return np.array(features).reshape(1, -1)
+    sc = librosa.feature.spectral_centroid(y=y, sr=sr)
+    features.extend([np.mean(sc), np.std(sc)])
 
-    except:
-        return np.random.rand(1, 15)
+    sb = librosa.feature.spectral_bandwidth(y=y, sr=sr)
+    features.extend([np.mean(sb), np.std(sb)])
 
-# ================= MODELS =================
+    contrast = librosa.feature.spectral_contrast(y=y, sr=sr)
+    features.append(np.mean(contrast))
+
+    flatness = librosa.feature.spectral_flatness(y=y)
+    features.append(np.mean(flatness))
+
+    rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)
+    features.append(np.mean(rolloff))
+
+    zcr = librosa.feature.zero_crossing_rate(y)
+    features.append(np.mean(zcr))
+
+    rms = librosa.feature.rms(y=y)
+    features.append(np.mean(rms))
+
+    pitch = librosa.yin(y, fmin=50, fmax=300)
+    features.extend([np.mean(pitch), np.min(pitch), np.max(pitch), np.std(pitch)])
+
+    features.append(skew(y))
+    features.append(kurtosis(y))
+    features.append(-np.sum(y**2 * np.log(y**2 + 1e-10)))
+    features.append(np.log(np.sum(y**2) + 1e-10))
+
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+    for i in range(13):
+        features.append(np.mean(mfcc[i]))
+        features.append(np.std(mfcc[i]))
+
+    return np.array(features).reshape(1, -1)
+
+# ================= MODEL LOAD =================
 def load_model(path):
     try:
         return pickle.load(open(path,"rb"))
     except:
         return None
 
-clf = load_model("models/classifier.pkl")
-kmeans = load_model("models/kmeans.pkl")
-scaler = load_model("models/scaler.pkl")
+clf = load_model("model.pkl")
+scaler = load_model("scaler.pkl")
+
+# ================= FEATURE COLUMNS =================
+FEATURE_COLUMNS = [
+ 'mean_spectral_centroid','std_spectral_centroid','mean_spectral_bandwidth','std_spectral_bandwidth',
+ 'mean_spectral_contrast','mean_spectral_flatness','mean_spectral_rolloff','zero_crossing_rate',
+ 'rms_energy','mean_pitch','min_pitch','max_pitch','std_pitch',
+ 'spectral_skew','spectral_kurtosis','energy_entropy','log_energy',
+ 'mfcc_1_mean','mfcc_1_std','mfcc_2_mean','mfcc_2_std','mfcc_3_mean','mfcc_3_std',
+ 'mfcc_4_mean','mfcc_4_std','mfcc_5_mean','mfcc_5_std','mfcc_6_mean','mfcc_6_std',
+ 'mfcc_7_mean','mfcc_7_std','mfcc_8_mean','mfcc_8_std','mfcc_9_mean','mfcc_9_std',
+ 'mfcc_10_mean','mfcc_10_std','mfcc_11_mean','mfcc_11_std','mfcc_12_mean','mfcc_12_std',
+ 'mfcc_13_mean','mfcc_13_std'
+]
 
 # ================= MAIN =================
 if not st.session_state.login:
@@ -97,65 +133,8 @@ if not st.session_state.login:
 else:
     menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Model"])
 
-    # ---------- OVERVIEW ----------
-    if menu=="Overview":
-        st.markdown("<div class='glass'>", unsafe_allow_html=True)
-
-        st.markdown("""
-# 🎙️ Human Voice Classification & Clustering  
-### *Decoding the DNA of Sound through Machine Learning*
-
-## 📝 Project Overview
-This project focuses on analyzing human voice using machine learning techniques.  
-It processes audio signals and converts them into meaningful numerical features such as spectral characteristics, pitch, and MFCC (Mel Frequency Cepstral Coefficients).
-
-The system combines:
-
-- **Supervised Learning** → Predict gender (Male/Female)  
-- **Unsupervised Learning** → Identify patterns via clustering  
-
-The final application is a **Streamlit-based interactive dashboard** where users can upload audio and instantly get predictions.
-
----
-
-## 🚀 Key Features
-- Audio feature extraction using Librosa  
-- Voice classification using Random Forest  
-- Clustering using K-Means  
-- Interactive visualization dashboard  
-- Real-time prediction system  
-
----
-
-## 📊 Workflow
-1. Upload audio file  
-2. Extract audio features  
-3. Apply ML model  
-4. Display prediction results  
-
----
-
-## 🛠️ Tech Stack
-- Python  
-- Scikit-learn  
-- Librosa  
-- Plotly  
-- Streamlit  
-
----
-
-## 💼 Use Cases
-- Call center voice analytics  
-- Gender detection systems  
-- Speech-based AI applications  
-- Audio pattern recognition  
-
-        """)
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
     # ---------- AUDIO ----------
-    elif menu=="Audio":
+    if menu=="Audio":
         file = st.file_uploader("Upload Audio (.wav recommended)", type=["wav","mp3"])
 
         if file:
@@ -164,69 +143,27 @@ The final application is a **Streamlit-based interactive dashboard** where users
             if st.button("Analyze"):
                 f = extract_features(file)
 
-                # 🔥 AUTO FIX FEATURE SIZE
-                expected = clf.n_features_in_ if clf else f.shape[1]
+                df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
 
-                if f.shape[1] < expected:
-                    pad = np.zeros((1, expected - f.shape[1]))
-                    f = np.concatenate([f, pad], axis=1)
-                elif f.shape[1] > expected:
-                    f = f[:, :expected]
-
-                # SAFE SCALING
-                if scaler and hasattr(scaler, "n_features_in_"):
-                    if f.shape[1] == scaler.n_features_in_:
-                        f = scaler.transform(f)
+                if scaler:
+                    f = scaler.transform(df)
 
                 try:
-                    pred = clf.predict(f)[0] if clf else 0
-                    cluster = kmeans.predict(f)[0] if kmeans else 0
+                    proba = clf.predict_proba(f)
+                    pred = clf.predict(f)[0]
 
-                    st.success(f"🎯 Prediction: {'Male' if pred else 'Female'}")
-                    st.info(f"🔍 Cluster: {cluster}")
+                    female_prob = proba[0][0]
+                    male_prob = proba[0][1]
+
+                    if female_prob > 0.6:
+                        result = "Female 👩"
+                    elif male_prob > 0.6:
+                        result = "Male 👨"
+                    else:
+                        result = "Uncertain ⚠️"
+
+                    st.success(f"🎯 Prediction: {result}")
+                    st.info(f"Confidence: {proba}")
 
                 except Exception as e:
                     st.error(f"Prediction error: {e}")
-
-    # ---------- EDA ----------
-    elif menu=="EDA":
-        df = load_data()
-        st.dataframe(df.head())
-
-        col = st.selectbox("Select Feature", df.columns)
-
-        st.plotly_chart(px.histogram(df, x=col, title="Histogram"))
-        st.plotly_chart(px.box(df, y=col, title="Box Plot"))
-        st.plotly_chart(px.imshow(df.corr(), title="Correlation Heatmap"))
-
-    # ---------- MODEL ----------
-    elif menu=="Model":
-        df = load_data()
-        cols = df.columns
-
-        st.plotly_chart(px.histogram(df, x=cols[0], title="Histogram"))
-        st.plotly_chart(px.box(df, y=cols[1], title="Box Plot"))
-        st.plotly_chart(px.scatter(df, x=cols[0], y=cols[1], title="Scatter Plot"))
-        st.plotly_chart(px.imshow(df.corr(), title="Correlation Matrix"))
-        st.plotly_chart(px.line(df.head(50), title="Line Chart"))
-        st.plotly_chart(px.violin(df, y=cols[1], title="Violin Plot"))
-        st.plotly_chart(px.area(df.head(50), title="Area Chart"))
-        st.plotly_chart(px.ecdf(df, x=cols[0], title="ECDF"))
-
-        if clf and hasattr(clf,"feature_importances_"):
-            st.subheader("📊 Feature Importance")
-
-            feat = df.drop("label", axis=1).columns
-            imp = clf.feature_importances_
-
-            imp_df = pd.DataFrame({"Feature":feat,"Importance":imp})
-
-            st.plotly_chart(
-                px.bar(
-                    imp_df.sort_values("Importance"),
-                    x="Importance",
-                    y="Feature",
-                    orientation="h",
-                    title="Top Important Features"
-                )
-            )
