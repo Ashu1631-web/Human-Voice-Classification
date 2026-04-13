@@ -16,7 +16,7 @@ st.markdown("""
     background-size: cover;
 }
 .glass {
-    background: rgba(0,0,0,0.7);
+    background: rgba(0,0,0,0.75);
     padding: 20px;
     border-radius: 15px;
 }
@@ -28,7 +28,7 @@ if "login" not in st.session_state:
     st.session_state.login = False
 
 def login():
-    st.title("🔐 Human Clustering Classification Login")
+    st.title("🔐 Login")
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
 
@@ -104,54 +104,52 @@ if not st.session_state.login:
     login()
     st.stop()
 
-menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Classification","Clustering"])
+menu = st.sidebar.radio("Navigate", ["Overview","EDA","Classification","Clustering","Audio"])
 
 # ================= OVERVIEW =================
 if menu=="Overview":
     st.markdown("<div class='glass'>", unsafe_allow_html=True)
-    st.title("👥 Human Voice Clustering AI")
-    st.markdown("Audio → Feature Extraction → Scaling → Model → Prediction")
+
+    st.title("🎙️ Human Voice Classification and Clustering")
+
+    st.markdown("""
+## 🧩 Introduction
+This project analyzes human voice using ML for gender classification and clustering.
+
+## ❗ Problem Statement
+- Gender classification  
+- Voice clustering  
+- Deployable system  
+
+## 💡 Proposed Solution
+- SVM Classification  
+- KMeans, DBSCAN Clustering  
+
+## 🛠️ Technologies
+Python | Pandas | NumPy | Scikit-learn | Streamlit
+""")
+
     st.markdown("</div>", unsafe_allow_html=True)
-
-# ================= AUDIO =================
-elif menu=="Audio":
-    file = st.file_uploader("Upload Audio", type=["wav","mp3"])
-
-    if file:
-        with open("temp.wav","wb") as f:
-            f.write(file.getbuffer())
-
-        st.audio("temp.wav")
-
-        if st.button("Analyze"):
-            f = extract_features("temp.wav")
-            df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
-            f_scaled = scaler.transform(df)
-
-            proba = model.predict_proba(f_scaled)
-            classes = model.classes_
-            proba_dict = dict(zip(classes, proba[0]))
-
-            female_prob = proba_dict.get('female', 0)
-            male_prob = proba_dict.get('male', 0)
-
-            result = "Female 👩" if female_prob > male_prob else "Male 👨"
-
-            st.success(f"🎯 Prediction: {result}")
-            st.info(f"Confidence: {proba_dict}")
 
 # ================= EDA =================
 elif menu=="EDA":
     df = load_data()
-    if df is not None:
-        st.title("📊 EDA Dashboard")
 
-        st.plotly_chart(px.histogram(df, x="label", title="Gender Distribution"))
-        st.plotly_chart(px.histogram(df, x="mean_pitch", color="label", title="Pitch Distribution"))
-        st.plotly_chart(px.box(df, x="label", y="mean_pitch", title="Pitch Comparison"))
-        st.plotly_chart(px.histogram(df, x="rms_energy", color="label", title="Energy Distribution"))
-        st.plotly_chart(px.imshow(df.corr(), title="Correlation Heatmap"))
-        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="label", title="Pitch vs Energy"))
+    if df is not None:
+        st.title("📊 Exploratory Data Analysis")
+
+        st.markdown("### 1️⃣ Gender Distribution")
+        st.plotly_chart(px.histogram(df, x="label"))
+
+        st.markdown("### 2️⃣ Correlation Heatmap")
+        st.plotly_chart(px.imshow(df.corr()))
+
+        st.markdown("### 3️⃣ Feature Distributions")
+        st.plotly_chart(px.histogram(df, x="mean_pitch", color="label"))
+        st.plotly_chart(px.histogram(df, x="rms_energy", color="label"))
+
+        st.markdown("### 4️⃣ Relationship")
+        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="label"))
 
 # ================= CLASSIFICATION =================
 elif menu=="Classification":
@@ -169,7 +167,7 @@ elif menu=="Classification":
 
         X_scaled = StandardScaler().fit_transform(X)
 
-        k = st.slider("Select Features", 5, 20, 10)
+        k = st.sidebar.slider("Features", 5, 20, 10)
 
         selector = SelectKBest(f_classif, k=k)
         X_selected = selector.fit_transform(X_scaled, y)
@@ -177,7 +175,7 @@ elif menu=="Classification":
         selected = X.columns[selector.get_support()]
         scores = selector.scores_[selector.get_support()]
 
-        X_train, X_test, y_train, y_test = train_test_split(X_selected, y, test_size=0.2)
+        X_train, X_test, y_train, y_test = train_test_split(X_selected, y)
 
         model_svm = SVC(kernel="linear")
         model_svm.fit(X_train, y_train)
@@ -187,11 +185,11 @@ elif menu=="Classification":
 
         df_feat = pd.DataFrame({"Feature": selected, "Score": scores}).sort_values("Score")
 
-        st.plotly_chart(px.bar(df_feat, x="Score", y="Feature", orientation='h', title="Top Features"))
+        st.plotly_chart(px.bar(df_feat, x="Score", y="Feature", orientation='h'))
 
 # ================= CLUSTERING =================
 elif menu=="Clustering":
-    st.title("🔍 Clustering Analysis")
+    st.title("🔍 Clustering")
 
     df = load_data()
     if df is not None:
@@ -206,10 +204,7 @@ elif menu=="Clustering":
         kmeans = KMeans(n_clusters=2)
         labels = kmeans.fit_predict(X_scaled)
 
-        score = silhouette_score(X_scaled, labels)
-
-        st.subheader("Silhouette Score")
-        st.write(score)
+        st.write("Silhouette Score:", silhouette_score(X_scaled, labels))
 
         pca = PCA(n_components=2)
         X_pca = pca.fit_transform(X_scaled)
@@ -224,7 +219,39 @@ elif menu=="Clustering":
         col1, col2 = st.columns(2)
 
         with col1:
-            st.plotly_chart(px.scatter(pca_df, x="PC1", y="PC2", color="Cluster", title="Clusters"))
+            st.plotly_chart(px.scatter(pca_df, x="PC1", y="PC2", color="Cluster"))
 
         with col2:
-            st.plotly_chart(px.scatter(pca_df, x="PC1", y="PC2", color="Actual", title="Actual"))
+            st.plotly_chart(px.scatter(pca_df, x="PC1", y="PC2", color="Actual"))
+
+# ================= AUDIO =================
+elif menu=="Audio":
+    file = st.file_uploader("Upload Audio", type=["wav","mp3"])
+
+    if file:
+        with open("temp.wav","wb") as f:
+            f.write(file.getbuffer())
+
+        st.audio("temp.wav")
+
+        f = extract_features("temp.wav")
+        df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
+        f = scaler.transform(df)
+
+        proba = model.predict_proba(f)
+        classes = model.classes_
+        proba_dict = dict(zip(classes, proba[0]))
+
+        result = max(proba_dict, key=proba_dict.get)
+
+        st.success(f"Prediction: {result}")
+        st.info(proba_dict)
+
+    st.markdown("### 🎤 Record Voice")
+    audio = st.audio_input("Record")
+
+    if audio:
+        with open("live.wav","wb") as f:
+            f.write(audio.getbuffer())
+
+        st.audio("live.wav")
