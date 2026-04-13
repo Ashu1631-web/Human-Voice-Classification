@@ -55,10 +55,9 @@ def load_data():
         return pd.read_csv("vocal_gender_features_new.csv")
     return None
 
-# ================= NOISE REDUCTION =================
+# ================= AUDIO CLEAN =================
 def clean_audio(y):
-    # simple noise reduction
-    return y / np.max(np.abs(y))
+    return y / (np.max(np.abs(y)) + 1e-9)
 
 # ================= FEATURES =================
 def extract_features(file):
@@ -95,10 +94,11 @@ def extract_features(file):
 
     return np.array(f).reshape(1, -1)
 
+# ================= PREDICT =================
 def predict(audio_path):
     f = extract_features(audio_path)
 
-    # 🔥 AUTO column fix (NO mismatch ever)
+    # auto columns
     df = pd.DataFrame(f)
     df.columns = [f"f{i}" for i in range(df.shape[1])]
 
@@ -129,25 +129,6 @@ def predict(audio_path):
 
     return result, female_prob, male_prob
 
-# ================= PREDICT =================
-def predict(audio_path):
-    f = extract_features(audio_path)
-    df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
-    f_scaled = scaler.transform(df)
-
-    proba = model.predict_proba(f_scaled)
-    classes = model.classes_
-
-    female_idx = list(classes).index("female")
-    male_idx = list(classes).index("male")
-
-    female_prob = proba[0][female_idx]
-    male_prob = proba[0][male_idx]
-
-    result = "Female 👩" if female_prob > male_prob else "Male 👨"
-
-    return result, female_prob, male_prob
-
 # ================= MAIN =================
 if not st.session_state.login:
     login()
@@ -159,14 +140,7 @@ menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Model","Clustering"])
 if menu=="Overview":
     st.markdown("<div class='glass'>", unsafe_allow_html=True)
     st.title("👥 Human Voice AI System")
-
-    st.markdown("""
-✔ Gender Detection  
-✔ Noise Handling  
-✔ Clustering  
-✔ 10+ Graphs  
-✔ Confusion Matrix  
-""")
+    st.markdown("Audio → Features → Model → Prediction")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= AUDIO =================
@@ -182,10 +156,10 @@ elif menu=="Audio":
 
         if st.button("Analyze"):
             res, f_prob, m_prob = predict("temp.wav")
-            st.success(res)
+            st.success(f"🎯 {res}")
             st.info(f"Female: {f_prob:.2f} | Male: {m_prob:.2f}")
 
-    st.markdown("### 🎤 Record")
+    st.markdown("### 🎤 Record Voice")
     audio = st.audio_input("Record")
 
     if audio:
@@ -194,24 +168,18 @@ elif menu=="Audio":
 
         st.audio("live.wav")
         res, f_prob, m_prob = predict("live.wav")
-        st.success(res)
+        st.success(f"🎯 {res}")
         st.info(f"Female: {f_prob:.2f} | Male: {m_prob:.2f}")
 
 # ================= EDA =================
 elif menu=="EDA":
     df = load_data()
     if df is not None:
-        st.title("📊 10+ Graphs")
-
+        st.title("📊 Analysis")
         st.plotly_chart(px.histogram(df, x="label"))
         st.plotly_chart(px.histogram(df, x="mean_pitch"))
-        st.plotly_chart(px.histogram(df, x="rms_energy"))
         st.plotly_chart(px.box(df, x="label", y="mean_pitch"))
         st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="label"))
-        st.plotly_chart(px.histogram(df, x="mfcc_1_mean"))
-        st.plotly_chart(px.histogram(df, x="mfcc_2_mean"))
-        st.plotly_chart(px.histogram(df, x="mfcc_3_mean"))
-        st.plotly_chart(px.histogram(df, x="mfcc_4_mean"))
         st.plotly_chart(px.imshow(df.corr()))
 
 # ================= MODEL =================
