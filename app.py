@@ -12,7 +12,7 @@ st.set_page_config(page_title="👥 Human Clustering Classification", layout="wi
 st.markdown("""
 <style>
 .stApp {
-    background-image: url("https://images.unsplash.com/photo-1511376777868-611b54f68947");
+    background-image: url("https://images.unsplash.com/photo-1453738773917-9c3eff1db985?q=80&w=870&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D");
     background-size: cover;
 }
 .glass {
