@@ -29,9 +29,6 @@ st.markdown("""
     font-family: 'Rajdhani', sans-serif;
 }
 
-/* Show the BG image ONLY on the login page via a body class we toggle with JS — 
-   simpler: we always keep a subtle dark mesh; the login card gets its own overlay. */
-
 /* ---- HIDE DEFAULT STREAMLIT CHROME ---- */
 #MainMenu, footer { visibility: hidden; }
 .block-container { padding-top: 1.5rem !important; }
@@ -173,10 +170,7 @@ if "login" not in st.session_state:
 
 # ================= LOGIN PAGE =================
 def login_page():
-    # Full-page background only on login
     st.markdown("<div class='login-overlay'></div>", unsafe_allow_html=True)
-
-    # Centre the card
     _, col, _ = st.columns([1, 1.6, 1])
     with col:
         st.markdown("<div class='login-card'>", unsafe_allow_html=True)
@@ -232,7 +226,6 @@ FEATURE_COLUMNS = [
 
 # ================= FEATURE EXTRACTION =================
 def convert_to_wav(input_path, output_path="converted_audio.wav"):
-    """Convert any audio format (webm, ogg, mp3, etc.) to wav using ffmpeg."""
     import subprocess
     try:
         result = subprocess.run(
@@ -249,27 +242,23 @@ def extract_features(filepath):
     try:
         import librosa
 
-        # Try loading directly first
         try:
             y, sr = librosa.load(filepath, duration=3, sr=22050)
             if len(y) < 100:
                 raise ValueError("Audio too short after direct load")
         except Exception:
-            # Fallback: convert via ffmpeg then load
             converted, err = convert_to_wav(filepath, "converted_audio.wav")
             if converted is None:
-                # Last resort: try soundfile
                 try:
                     import soundfile as sf
                     data, sr = sf.read(filepath)
                     if data.ndim > 1:
                         data = data.mean(axis=1)
                     y = data.astype(np.float32)
-                    # Resample to 22050 if needed
                     if sr != 22050:
                         y = librosa.resample(y, orig_sr=sr, target_sr=22050)
                         sr = 22050
-                    y = y[:sr * 3]  # max 3 seconds
+                    y = y[:sr * 3]
                 except Exception as e2:
                     return None, f"Cannot read audio file: {e2}"
             else:
@@ -310,6 +299,7 @@ def extract_features(filepath):
         return None, str(e)
 
 # ================= PREDICT HELPER =================
+# FIX 2: Reliable male/female class mapping
 def predict_and_display(filepath, model, scaler):
     feats, err = extract_features(filepath)
     if err:
@@ -325,33 +315,38 @@ def predict_and_display(filepath, model, scaler):
 
     try:
         proba      = model.predict_proba(feats_scaled)[0]
-        prediction = model.predict(feats_scaled)[0]   # raw label from model
+        prediction = model.predict(feats_scaled)[0]
     except Exception as e:
         st.error(f"❌ Model prediction error: {e}")
         return
 
-    # ---- Map model classes to female/male indices SAFELY ----
+    # --- Safely map model classes to female/male indices ---
     classes = list(model.classes_)
-
-    def _is_female(c):
-        return str(c).strip().lower() in ("female", "f", "0") or c == 0
-
-    def _is_male(c):
-        return str(c).strip().lower() in ("male", "m", "1") or c == 1
-
     female_idx, male_idx = None, None
+
+    # Step 1: Try string labels first
     for i, c in enumerate(classes):
-        if _is_female(c):
+        s = str(c).strip().lower()
+        if s in ("female", "f"):
             female_idx = i
-        elif _is_male(c):
+        elif s in ("male", "m"):
             male_idx = i
 
-    # Fallback: if both still None (unexpected labels), use predict() directly
+    # Step 2: Numeric fallback — standard convention 0=female, 1=male
     if female_idx is None and male_idx is None:
-        # Just use highest-prob class
-        pred_idx    = int(np.argmax(proba))
-        female_idx  = pred_idx      # treat winning class as female for display
-        male_idx    = 1 - pred_idx
+        for i, c in enumerate(classes):
+            try:
+                val = int(c)
+                if val == 0:
+                    female_idx = i
+                elif val == 1:
+                    male_idx = i
+            except (ValueError, TypeError):
+                pass
+
+    # Step 3: Last resort — assign by position
+    if female_idx is None and male_idx is None:
+        female_idx, male_idx = 0, 1
 
     if female_idx is None:
         female_idx = 1 - male_idx
@@ -361,22 +356,32 @@ def predict_and_display(filepath, model, scaler):
     female_prob = float(proba[female_idx])
     male_prob   = float(proba[male_idx])
 
-    # ---- Use model.predict() as the ground truth for label ----
+    # --- Determine result label ---
     pred_str = str(prediction).strip().lower()
-    if pred_str in ("female", "f", "0") or prediction == 0:
+    if pred_str in ("female", "f"):
         result, badge_cls = "Female 👩", "pred-female"
-    elif pred_str in ("male", "m", "1") or prediction == 1:
+    elif pred_str in ("male", "m"):
         result, badge_cls = "Male 👨", "pred-male"
     else:
-        # fallback to probability
-        if female_prob > male_prob:
+        # Numeric prediction — use the index mapping we built above
+        try:
+            pred_val = int(prediction)
+        except (ValueError, TypeError):
+            pred_val = -1
+
+        if pred_val == female_idx:
             result, badge_cls = "Female 👩", "pred-female"
-        else:
+        elif pred_val == male_idx:
             result, badge_cls = "Male 👨", "pred-male"
+        else:
+            # Final fallback to probabilities
+            if female_prob > male_prob:
+                result, badge_cls = "Female 👩", "pred-female"
+            else:
+                result, badge_cls = "Male 👨", "pred-male"
 
     st.markdown(f"<div class='pred-badge {badge_cls}'>🎯 {result}</div>", unsafe_allow_html=True)
 
-    # Confidence bars
     st.markdown(f"""
     <div class='conf-bar-wrap'>
         <div class='conf-label'>Female Probability — {female_prob*100:.1f}%</div>
@@ -388,7 +393,6 @@ def predict_and_display(filepath, model, scaler):
     </div>
     """, unsafe_allow_html=True)
 
-    # Feature table
     with st.expander("📋 Extracted Features"):
         st.dataframe(df_feat.T.rename(columns={0: "Value"}), use_container_width=True)
 
@@ -405,9 +409,10 @@ PLOT_LAYOUT = dict(
 
 FEMALE_COLOR = "#ff4fa3"
 MALE_COLOR   = "#ff3a3a"
+# FIX 1: COLOR_MAP me 0 aur 1 sahi order me (0=Female, 1=Male)
 COLOR_MAP    = {"female": FEMALE_COLOR, "male": MALE_COLOR,
                 "Female": FEMALE_COLOR, "Male": MALE_COLOR,
-                0: MALE_COLOR, 1: FEMALE_COLOR}
+                0: FEMALE_COLOR, 1: MALE_COLOR}
 
 def apply_theme(fig):
     fig.update_layout(**PLOT_LAYOUT)
@@ -431,7 +436,6 @@ An AI-powered pipeline that analyses raw voice audio to perform **gender detecti
 """)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Metric row
     st.markdown("""
 <div class='metric-row'>
     <div class='metric-card'><div class='val'>2</div><div class='lbl'>CLASSES</div></div>
@@ -499,10 +503,9 @@ def page_audio(model, scaler):
     # --- UPLOAD TAB ---
     with tab1:
         st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        uploaded = st.file_uploader("Upload a `.wav` or `.mp3` file", type=["wav","mp3"])
+        uploaded = st.file_uploader("Upload a `.wav` or `.mp3` file", type=["wav", "mp3"])
 
         if uploaded:
-            # Preserve original extension so librosa/ffmpeg can detect format
             ext = os.path.splitext(uploaded.name)[-1].lower() or ".wav"
             save_path = f"temp_upload{ext}"
             with open(save_path, "wb") as f:
@@ -520,13 +523,13 @@ def page_audio(model, scaler):
         st.markdown("</div>", unsafe_allow_html=True)
 
     # --- RECORDING TAB ---
+    # FIX 3: Button add kiya — automatic analysis nahi hoga, user confirm karega
     with tab2:
         st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.markdown("Press the mic button below, speak, then stop. Analysis runs automatically.")
+        st.markdown("Press the mic button below, speak for at least 2–3 seconds, then stop. Click **Analyse Recording** to get results.")
         live_audio = st.audio_input("🎙️ Click to record your voice")
 
         if live_audio:
-            # st.audio_input returns webm/ogg bytes — save with .webm so ffmpeg detects format
             raw_path = "temp_live_raw.webm"
             with open(raw_path, "wb") as f:
                 f.write(live_audio.getbuffer())
@@ -537,8 +540,15 @@ def page_audio(model, scaler):
             if model is None:
                 st.error("Model not loaded. Cannot predict.")
             else:
-                with st.spinner("Converting & analysing recording…"):
-                    predict_and_display(raw_path, model, scaler)
+                if st.button("🔍 Analyse Recording", key="btn_record"):
+                    with st.spinner("Converting & analysing recording…"):
+                        # Try ffmpeg conversion first for reliable webm→wav
+                        converted, err = convert_to_wav(raw_path, "temp_live.wav")
+                        if converted:
+                            predict_and_display(converted, model, scaler)
+                        else:
+                            st.warning(f"⚠️ ffmpeg conversion failed ({err}). Trying direct analysis…")
+                            predict_and_display(raw_path, model, scaler)
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -550,14 +560,10 @@ def page_eda(df):
         st.warning("⚠️ `vocal_gender_features_new.csv` not found in the project directory.")
         return
 
-    # Normalise label column
     df = df.copy()
     if "label" in df.columns:
         df["label"] = df["label"].astype(str).str.strip().str.lower().str.capitalize()
 
-    color_seq = [FEMALE_COLOR, MALE_COLOR]
-
-    # ---- Row 1 ----
     c1, c2 = st.columns(2)
     with c1:
         fig = px.histogram(df, x="label", color="label",
@@ -571,7 +577,6 @@ def page_eda(df):
                      title="🎵 Mean Pitch by Gender")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
-    # ---- Row 2 ----
     c1, c2 = st.columns(2)
     with c1:
         fig = px.histogram(df, x="mean_pitch", color="label",
@@ -587,7 +592,6 @@ def page_eda(df):
                            title="📊 Spectral Centroid Distribution")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
-    # ---- Row 3 ----
     c1, c2 = st.columns(2)
     with c1:
         fig = px.histogram(df, x="mean_spectral_bandwidth", color="label",
@@ -603,7 +607,6 @@ def page_eda(df):
                            title="📊 RMS Energy Distribution")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
-    # ---- Row 4 ----
     c1, c2 = st.columns(2)
     with c1:
         fig = px.histogram(df, x="mfcc_1_mean", color="label",
@@ -619,7 +622,6 @@ def page_eda(df):
                            title="📊 MFCC-2 Mean Distribution")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
-    # ---- Row 5 ----
     c1, c2 = st.columns(2)
     with c1:
         fig = px.scatter(df, x="mean_pitch", y="rms_energy", color="label",
@@ -636,10 +638,9 @@ def page_eda(df):
                          title="🔵 Spectral Centroid vs Bandwidth")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
-    # ---- Correlation heatmap (full width) ----
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
     corr = df[num_cols].corr()
-    fig = px.imshow(corr, color_continuous_scale=["#ff3a3a","#0a0a12","#ff4fa3"],
+    fig = px.imshow(corr, color_continuous_scale=["#ff3a3a", "#0a0a12", "#ff4fa3"],
                     title="🌡️ Feature Correlation Heatmap", aspect="auto")
     fig.update_layout(**PLOT_LAYOUT, height=600)
     st.plotly_chart(fig, use_container_width=True)
@@ -657,34 +658,29 @@ def page_classification(df):
     if "label" in df.columns:
         df["label"] = df["label"].astype(str).str.strip().str.lower().str.capitalize()
 
-    # ---- Full dataset table (no filter) ----
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     st.markdown("#### 🗂️ Full Dataset")
     st.markdown(f"**{len(df):,} records · {len(df.columns)} columns**")
     st.dataframe(df, use_container_width=True, height=320)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ---- Summary stats ----
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     st.markdown("#### 📐 Descriptive Statistics")
     st.dataframe(df.describe().T.style.format("{:.4f}"), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ---- 10 charts derived from table values ----
     st.markdown("<h2 style='color:#fff; font-size:1.2rem; margin-top:1rem;'>📊 10 Analysis Charts (from table values)</h2>", unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
 
-    # 1. Record count per class
     with c1:
         counts = df["label"].value_counts().reset_index()
-        counts.columns = ["Gender","Count"]
+        counts.columns = ["Gender", "Count"]
         fig = px.bar(counts, x="Gender", y="Count", color="Gender",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
                      title="1️⃣ Sample Count per Class")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
-    # 2. Mean feature values by gender
     with c2:
         num_df = df.select_dtypes(include=np.number)
         means  = df.groupby("label")[num_df.columns.tolist()].mean()
@@ -699,10 +695,9 @@ def page_classification(df):
 
     c1, c2 = st.columns(2)
 
-    # 3. Std deviation per class (radar-style bar)
     with c1:
-        stds = df.groupby("label")[["mean_pitch","rms_energy","mean_spectral_centroid",
-                                    "mean_spectral_bandwidth","zero_crossing_rate"]].std().T.reset_index()
+        stds = df.groupby("label")[["mean_pitch", "rms_energy", "mean_spectral_centroid",
+                                    "mean_spectral_bandwidth", "zero_crossing_rate"]].std().T.reset_index()
         stds = stds.melt(id_vars="index", var_name="Gender", value_name="StdDev")
         fig = px.bar(stds, x="index", y="StdDev", color="Gender",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -710,7 +705,6 @@ def page_classification(df):
                      title="3️⃣ Std Deviation of Key Features by Gender")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
-    # 4. Box: spectral centroid by gender
     with c2:
         fig = px.box(df, x="label", y="mean_spectral_centroid", color="label",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -719,14 +713,12 @@ def page_classification(df):
 
     c1, c2 = st.columns(2)
 
-    # 5. Box: RMS energy by gender
     with c1:
         fig = px.box(df, x="label", y="rms_energy", color="label",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
                      title="5️⃣ RMS Energy by Gender")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
-    # 6. Violin: zero crossing rate
     with c2:
         fig = px.violin(df, x="label", y="zero_crossing_rate", color="label",
                         color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -736,7 +728,6 @@ def page_classification(df):
 
     c1, c2 = st.columns(2)
 
-    # 7. MFCC 1-5 mean comparison bar
     with c1:
         mfcc_cols = [f"mfcc_{i}_mean" for i in range(1, 6)]
         mfcc_means = df.groupby("label")[mfcc_cols].mean().T.reset_index()
@@ -747,7 +738,6 @@ def page_classification(df):
                      title="7️⃣ MFCC 1–5 Mean by Gender")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
-    # 8. Scatter: pitch std vs mean pitch
     with c2:
         fig = px.scatter(df, x="mean_pitch", y="std_pitch", color="label",
                          color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -757,10 +747,9 @@ def page_classification(df):
 
     c1, c2 = st.columns(2)
 
-    # 9. Pie: class balance
     with c1:
         pie_data = df["label"].value_counts().reset_index()
-        pie_data.columns = ["Gender","Count"]
+        pie_data.columns = ["Gender", "Count"]
         fig = px.pie(pie_data, names="Gender", values="Count",
                      color="Gender",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -768,7 +757,6 @@ def page_classification(df):
                      hole=0.4)
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
-    # 10. Box: spectral rolloff by gender
     with c2:
         fig = px.box(df, x="label", y="mean_spectral_rolloff", color="label",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -829,7 +817,7 @@ def page_clustering(df):
 
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     st.markdown("#### 📋 Clustered Dataset")
-    st.dataframe(df[["label","cluster"] + list(num_df.columns[:8])], use_container_width=True, height=300)
+    st.dataframe(df[["label", "cluster"] + list(num_df.columns[:8])], use_container_width=True, height=300)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -844,16 +832,21 @@ if not st.session_state.login:
 model, scaler = load_models()
 df = load_data()
 
-# Sidebar
+# FIX 1 (Navigation): Sidebar ke andar sirf Streamlit native elements use kiye,
+# unclosed HTML div hata diya jo navigation ko break karta tha
 with st.sidebar:
-    st.markdown("<div style='text-align:center; padding: 1rem 0 0.5rem;'>", unsafe_allow_html=True)
-    st.markdown("<span style='font-family:Orbitron; font-size:1rem; color:#00f0d0; letter-spacing:0.08em;'>VOICE AI</span>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("<hr style='border-color:rgba(255,255,255,0.08); margin:0.5rem 0 1rem;'>", unsafe_allow_html=True)
+    st.markdown(
+        "<p style='text-align:center; font-family:Orbitron; font-size:1rem;"
+        " color:#00f0d0; letter-spacing:0.08em; padding: 1rem 0 0.5rem;'>VOICE AI</p>",
+        unsafe_allow_html=True
+    )
+    st.markdown("<hr style='border-color:rgba(255,255,255,0.08); margin:0.5rem 0 1rem;'>",
+                unsafe_allow_html=True)
 
     menu = st.radio("Navigation", ["Overview", "Audio Detection", "EDA", "Classification", "Clustering"])
 
-    st.markdown("<hr style='border-color:rgba(255,255,255,0.08); margin:1rem 0 0.5rem;'>", unsafe_allow_html=True)
+    st.markdown("<hr style='border-color:rgba(255,255,255,0.08); margin:1rem 0 0.5rem;'>",
+                unsafe_allow_html=True)
     if st.button("🚪 Logout"):
         st.session_state.login = False
         st.rerun()
