@@ -204,7 +204,15 @@ def load_models():
 @st.cache_data
 def load_data():
     if os.path.exists("vocal_gender_features_new.csv"):
-        return pd.read_csv("vocal_gender_features_new.csv")
+        df = pd.read_csv("vocal_gender_features_new.csv")
+        # Agar label column numeric (0/1) hai toh Male/Female me convert karo
+        if "label" in df.columns:
+            unique_vals = df["label"].dropna().unique()
+            # Check karo kya values numeric/string 0 aur 1 hain
+            str_vals = [str(v).strip().lower() for v in unique_vals]
+            if all(v in ("0", "1") for v in str_vals):
+                df["label"] = df["label"].astype(str).str.strip().map({"0": "Male", "1": "Female"})
+        return df
     return None
 
 # ================= FEATURE COLUMNS =================
@@ -332,15 +340,16 @@ def predict_and_display(filepath, model, scaler):
         elif s in ("male", "m"):
             male_idx = i
 
-    # Step 2: Numeric fallback — standard convention 0=female, 1=male
+    # Step 2: Numeric fallback
+    # CSV data ke hisaab se: 0=Male, 1=Female (isliye swap hai)
     if female_idx is None and male_idx is None:
         for i, c in enumerate(classes):
             try:
                 val = int(c)
                 if val == 0:
-                    female_idx = i
+                    male_idx = i    # 0 = Male
                 elif val == 1:
-                    male_idx = i
+                    female_idx = i  # 1 = Female
             except (ValueError, TypeError):
                 pass
 
@@ -363,16 +372,16 @@ def predict_and_display(filepath, model, scaler):
     elif pred_str in ("male", "m"):
         result, badge_cls = "Male 👨", "pred-male"
     else:
-        # Numeric prediction — use the index mapping we built above
+        # Numeric prediction: 0=Male, 1=Female (CSV convention ke hisaab se)
         try:
             pred_val = int(prediction)
         except (ValueError, TypeError):
             pred_val = -1
 
-        if pred_val == female_idx:
-            result, badge_cls = "Female 👩", "pred-female"
-        elif pred_val == male_idx:
+        if pred_val == 0:
             result, badge_cls = "Male 👨", "pred-male"
+        elif pred_val == 1:
+            result, badge_cls = "Female 👩", "pred-female"
         else:
             # Final fallback to probabilities
             if female_prob > male_prob:
@@ -409,10 +418,10 @@ PLOT_LAYOUT = dict(
 
 FEMALE_COLOR = "#ff4fa3"
 MALE_COLOR   = "#ff3a3a"
-# FIX 1: COLOR_MAP me 0 aur 1 sahi order me (0=Female, 1=Male)
+# 0=Male, 1=Female (CSV data convention)
 COLOR_MAP    = {"female": FEMALE_COLOR, "male": MALE_COLOR,
                 "Female": FEMALE_COLOR, "Male": MALE_COLOR,
-                0: FEMALE_COLOR, 1: MALE_COLOR}
+                0: MALE_COLOR, 1: FEMALE_COLOR}
 
 def apply_theme(fig):
     fig.update_layout(**PLOT_LAYOUT)
