@@ -3,21 +3,20 @@ import numpy as np
 import pandas as pd
 import pickle
 import plotly.express as px
-import plotly.figure_factory as ff
 from scipy.stats import skew, kurtosis
 import os
 
-st.set_page_config(page_title="👥 Human Voice AI", layout="wide")
+st.set_page_config(page_title="👥 Human Clustering Classification", layout="wide")
 
 # ================= UI =================
 st.markdown("""
 <style>
 .stApp {
-    background-image: url("https://images.unsplash.com/photo-1610733661495-4aa6ed9fc6f4?q=80&w=869&auto=format&fit=crop");
+    background-image: url("https://images.unsplash.com/photo-1511376777868-611b54f68947");
     background-size: cover;
 }
 .glass {
-    background: rgba(0,0,0,0.75);
+    background: rgba(0,0,0,0.7);
     padding: 20px;
     border-radius: 15px;
 }
@@ -29,15 +28,15 @@ if "login" not in st.session_state:
     st.session_state.login = False
 
 def login():
-    st.title("🔐 Login")
+    st.title("🔐 Human Clustering Classification Login")
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        if (u=="admin" and p=="admin123"):
+        if (u=="admin" and p=="admin123") or (u=="user" and p=="user123"):
             st.session_state.login = True
         else:
-            st.error("Invalid ❌")
+            st.error("Invalid credentials ❌")
 
 # ================= MODEL =================
 @st.cache_resource
@@ -55,19 +54,12 @@ def load_data():
         return pd.read_csv("vocal_gender_features_new.csv")
     return None
 
-# ================= AUDIO CLEAN =================
-def clean_audio(y):
-    return y / (np.max(np.abs(y)) + 1e-9)
-
 # ================= FEATURES =================
 def extract_features(file):
     import librosa
-
-    y, sr = librosa.load(file, duration=5)
-    y = clean_audio(y)
+    y, sr = librosa.load(file, duration=3)
 
     f = []
-
     sc = librosa.feature.spectral_centroid(y=y, sr=sr)
     f.extend([np.mean(sc), np.std(sc)])
 
@@ -80,12 +72,13 @@ def extract_features(file):
     f.append(np.mean(librosa.feature.zero_crossing_rate(y)))
     f.append(np.mean(librosa.feature.rms(y=y)))
 
-    pitch = librosa.yin(y, fmin=50, fmax=500)
+    pitch = librosa.yin(y, fmin=50, fmax=300)
     f.extend([np.mean(pitch), np.min(pitch), np.max(pitch), np.std(pitch)])
 
     f.append(skew(y))
     f.append(kurtosis(y))
-    f.append(np.log(np.sum(y**2)+1e-10))
+    f.append(-np.sum(y**2 * np.log(y**2 + 1e-10)))
+    f.append(np.log(np.sum(y**2) + 1e-10))
 
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
     for i in range(13):
@@ -94,40 +87,17 @@ def extract_features(file):
 
     return np.array(f).reshape(1, -1)
 
-# ================= PREDICT =================
-def predict(audio_path):
-    f = extract_features(audio_path)
-
-    # auto columns
-    df = pd.DataFrame(f)
-    df.columns = [f"f{i}" for i in range(df.shape[1])]
-
-    f_scaled = scaler.transform(df.values)
-
-    proba = model.predict_proba(f_scaled)
-    classes = list(model.classes_)
-
-    classes_lower = [str(c).lower() for c in classes]
-
-    female_index = 0
-    male_index = 1
-
-    if "female" in classes_lower:
-        female_index = classes_lower.index("female")
-    elif "f" in classes_lower:
-        female_index = classes_lower.index("f")
-
-    if "male" in classes_lower:
-        male_index = classes_lower.index("male")
-    elif "m" in classes_lower:
-        male_index = classes_lower.index("m")
-
-    female_prob = proba[0][female_index]
-    male_prob = proba[0][male_index]
-
-    result = "Female 👩" if female_prob > male_prob else "Male 👨"
-
-    return result, female_prob, male_prob
+FEATURE_COLUMNS = [
+ 'mean_spectral_centroid','std_spectral_centroid','mean_spectral_bandwidth','std_spectral_bandwidth',
+ 'mean_spectral_contrast','mean_spectral_flatness','mean_spectral_rolloff','zero_crossing_rate',
+ 'rms_energy','mean_pitch','min_pitch','max_pitch','std_pitch',
+ 'spectral_skew','spectral_kurtosis','energy_entropy','log_energy',
+ 'mfcc_1_mean','mfcc_1_std','mfcc_2_mean','mfcc_2_std','mfcc_3_mean','mfcc_3_std',
+ 'mfcc_4_mean','mfcc_4_std','mfcc_5_mean','mfcc_5_std','mfcc_6_mean','mfcc_6_std',
+ 'mfcc_7_mean','mfcc_7_std','mfcc_8_mean','mfcc_8_std','mfcc_9_mean','mfcc_9_std',
+ 'mfcc_10_mean','mfcc_10_std','mfcc_11_mean','mfcc_11_std','mfcc_12_mean','mfcc_12_std',
+ 'mfcc_13_mean','mfcc_13_std'
+]
 
 # ================= MAIN =================
 if not st.session_state.login:
@@ -136,17 +106,56 @@ if not st.session_state.login:
 
 menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Model","Clustering"])
 
-# ================= OVERVIEW =================
+# ================= OVERVIEW (UPDATED ONLY) =================
 if menu=="Overview":
     st.markdown("<div class='glass'>", unsafe_allow_html=True)
-    st.title("👥 Human Voice AI System")
-    st.markdown("Audio → Features → Model → Prediction")
+
+    st.title("👥 Human Voice Clustering AI")
+
+    st.markdown("""
+### 📌 Project Overview
+
+This is an AI-powered system that analyzes human voice audio and performs:
+
+- 🎤 Gender Detection (Male / Female)
+- 👥 Human Voice Clustering
+- 📊 Data Analysis & Visualization
+
+---
+
+### 🚀 Features
+
+✔ Upload audio  
+✔ Live recording  
+✔ Gender prediction  
+✔ EDA dashboard (10 graphs)  
+✔ Model insights  
+✔ Clustering system  
+
+---
+
+### 🔄 Workflow
+
+Audio → Feature Extraction → Scaling → Model → Prediction  
+
+---
+
+### 🛠 Tech Stack
+
+Python | Streamlit | Librosa | Scikit-learn | Plotly  
+
+---
+
+### 💼 Use Cases
+
+Call center analytics, AI voice systems, clustering & classification  
+""")
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= AUDIO =================
 elif menu=="Audio":
-
-    file = st.file_uploader("Upload Audio", type=["wav","mp3"])
+    file = st.file_uploader("Upload Audio (.wav / mp3)", type=["wav","mp3"])
 
     if file:
         with open("temp.wav","wb") as f:
@@ -155,55 +164,86 @@ elif menu=="Audio":
         st.audio("temp.wav")
 
         if st.button("Analyze"):
-            res, f_prob, m_prob = predict("temp.wav")
-            st.success(f"🎯 {res}")
-            st.info(f"Female: {f_prob:.2f} | Male: {m_prob:.2f}")
+            f = extract_features("temp.wav")
+            df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
+            f = scaler.transform(df)
+
+            proba = model.predict_proba(f)
+            female_prob = proba[0][0]
+            male_prob = proba[0][1]
+
+            if female_prob > 0.6:
+                result = "Female 👩"
+            elif male_prob > 0.6:
+                result = "Male 👨"
+            else:
+                result = "Uncertain ⚠️"
+
+            st.success(f"🎯 Prediction: {result}")
+            st.info(f"Confidence: {proba}")
 
     st.markdown("### 🎤 Record Voice")
-    audio = st.audio_input("Record")
+    audio = st.audio_input("Click to record")
 
     if audio:
         with open("live.wav","wb") as f:
             f.write(audio.getbuffer())
 
         st.audio("live.wav")
-        res, f_prob, m_prob = predict("live.wav")
-        st.success(f"🎯 {res}")
-        st.info(f"Female: {f_prob:.2f} | Male: {m_prob:.2f}")
+
+        f = extract_features("live.wav")
+        df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
+        f = scaler.transform(df)
+
+        proba = model.predict_proba(f)
+
+        female_prob = proba[0][0]
+        male_prob = proba[0][1]
+
+        if female_prob > 0.6:
+            result = "Female 👩"
+        elif male_prob > 0.6:
+            result = "Male 👨"
+        else:
+            result = "Uncertain ⚠️"
+
+        st.success(f"🎯 Prediction: {result}")
+        st.info(f"Confidence: {proba}")
 
 # ================= EDA =================
 elif menu=="EDA":
     df = load_data()
+
     if df is not None:
-        st.title("📊 Analysis")
+        st.title("📊 Data Analysis")
+
         st.plotly_chart(px.histogram(df, x="label"))
         st.plotly_chart(px.histogram(df, x="mean_pitch"))
+        st.plotly_chart(px.histogram(df, x="mean_spectral_centroid"))
+        st.plotly_chart(px.histogram(df, x="mean_spectral_bandwidth"))
+        st.plotly_chart(px.histogram(df, x="rms_energy"))
         st.plotly_chart(px.box(df, x="label", y="mean_pitch"))
-        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="label"))
+        st.plotly_chart(px.histogram(df, x="mfcc_1_mean"))
+        st.plotly_chart(px.histogram(df, x="mfcc_2_mean"))
         st.plotly_chart(px.imshow(df.corr()))
+        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="label"))
 
 # ================= MODEL =================
 elif menu=="Model":
     df = load_data()
+
     if df is not None:
-        from sklearn.metrics import confusion_matrix
-
-        X = df.drop("label", axis=1)
-        y = df["label"]
-
-        preds = model.predict(scaler.transform(X))
-        cm = confusion_matrix(y, preds)
-
-        fig = ff.create_annotated_heatmap(
-            z=cm,
-            x=["Female","Male"],
-            y=["Female","Male"]
-        )
-        st.plotly_chart(fig)
+        st.bar_chart(df.drop("label", axis=1).mean().sort_values(ascending=False).head(10))
+        st.plotly_chart(px.histogram(df, x="label"))
+        st.plotly_chart(px.histogram(df, x="mean_pitch"))
+        st.plotly_chart(px.histogram(df, x="rms_energy"))
+        st.plotly_chart(px.box(df, x="label", y="mean_pitch"))
+        st.plotly_chart(px.imshow(df.corr()))
 
 # ================= CLUSTERING =================
 elif menu=="Clustering":
     df = load_data()
+
     if df is not None:
         from sklearn.cluster import KMeans
         from sklearn.preprocessing import StandardScaler
@@ -214,4 +254,6 @@ elif menu=="Clustering":
         kmeans = KMeans(n_clusters=2, random_state=42)
         df["cluster"] = kmeans.fit_predict(X_scaled)
 
+        st.plotly_chart(px.histogram(df, x="cluster"))
         st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="cluster"))
+        st.plotly_chart(px.histogram(df, x="cluster", color="label"))
