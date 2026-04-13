@@ -6,9 +6,36 @@ import plotly.express as px
 from scipy.stats import skew, kurtosis
 import os
 
-st.set_page_config(page_title="👥 Human Voice Clustering Classification", layout="wide")
+st.set_page_config(page_title="👥 Human Clustering Classification", layout="wide")
 
-# ================= LOGIN BG ONLY =================
+# ================= SIDEBAR ANIMATION =================
+st.markdown("""
+<style>
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0f2027, #203a43, #2c5364);
+}
+[data-testid="stSidebar"]::after {
+    content: "";
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: repeating-linear-gradient(
+        90deg,
+        rgba(255,255,255,0.05) 0px,
+        rgba(255,255,255,0.05) 2px,
+        transparent 2px,
+        transparent 6px
+    );
+    animation: move 2s linear infinite;
+}
+@keyframes move {
+    0% {transform: translateY(0);}
+    100% {transform: translateY(20px);}
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ================= LOGIN =================
 if "login" not in st.session_state:
     st.session_state.login = False
 
@@ -22,9 +49,8 @@ if not st.session_state.login:
     </style>
     """, unsafe_allow_html=True)
 
-# ================= LOGIN =================
 def login():
-    st.title("🔐 Human Voice Clustering Classification Login")
+    st.title("🔐 Human Clustering Classification Login")
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
 
@@ -85,54 +111,70 @@ if not st.session_state.login:
     login()
     st.stop()
 
-menu = st.sidebar.radio("Navigate", ["Overview","EDA","Classification","Clustering","Audio"])
+menu = st.sidebar.radio("Menu", ["Overview","EDA","Classification","Clustering","Audio"])
 
-# ================= OVERVIEW =================
+# ================= OVERVIEW (UNCHANGED) =================
 if menu=="Overview":
-    st.title("🎙️ Human Voice Classification and Clustering")
+    st.markdown("<div class='glass'>", unsafe_allow_html=True)
+
+    st.title("👥 Human Voice Clustering AI")
 
     st.markdown("""
-## 🧩 Introduction
-Voice classification + clustering using ML.
+### 📌 Project Overview
 
-## ❗ Problem
-- Gender detection
-- Voice clustering
+This is an AI-powered system that analyzes human voice audio and performs:
 
-## 💡 Solution
-- SVM Classification
-- KMeans Clustering
+- 🎤 Gender Detection (Male / Female)
+- 👥 Human Voice Clustering
+- 📊 Data Analysis & Visualization
 
-## 🛠️ Tech
-Python | Pandas | Scikit-learn | Streamlit
+---
+
+### 🚀 Features
+
+✔ Upload audio  
+✔ Live recording  
+✔ Gender prediction  
+✔ EDA dashboard (10 graphs)  
+✔ Model insights  
+✔ Clustering system  
+
+---
+
+### 🔄 Workflow
+
+Audio → Feature Extraction → Scaling → Model → Prediction  
+
+---
+
+### 🛠 Tech Stack
+
+Python | Streamlit | Librosa | Scikit-learn | Plotly  
+
+---
+
+### 💼 Use Cases
+
+Call center analytics, AI voice systems, clustering & classification  
 """)
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= EDA =================
 elif menu=="EDA":
     df = load_data()
     if df is not None:
+        df["label"] = df["label"].map({0:"female",1:"male"})
+
         st.title("📊 Exploratory Data Analysis")
+        st.dataframe(df.head(20))
 
-        st.markdown("### 1️⃣ Gender Distribution")
-        st.plotly_chart(px.histogram(df, x="label", color="label",
-                                     color_discrete_map={"male":"blue","female":"pink"}))
-
-        st.markdown("### 2️⃣ Correlation Heatmap")
-        st.plotly_chart(px.imshow(df.corr()))
-
-        st.markdown("### 3️⃣ Feature Distribution")
-        st.plotly_chart(px.histogram(df, x="mean_pitch", color="label",
-                                     barmode="overlay",
-                                     color_discrete_map={"male":"blue","female":"pink"}))
-
-        st.plotly_chart(px.histogram(df, x="rms_energy", color="label",
-                                     barmode="overlay",
-                                     color_discrete_map={"male":"blue","female":"pink"}))
-
-        st.markdown("### 4️⃣ Relationship")
-        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy",
-                                   color="label",
-                                   color_discrete_map={"male":"blue","female":"pink"}))
+        for i, col in enumerate(df.drop("label", axis=1).columns[:10]):
+            st.plotly_chart(px.histogram(
+                df, x=col, color="label",
+                title=f"{i+1}. {col}",
+                template="plotly_dark"
+            ))
 
 # ================= CLASSIFICATION =================
 elif menu=="Classification":
@@ -140,114 +182,58 @@ elif menu=="Classification":
 
     df = load_data()
     if df is not None:
+        df["label"] = df["label"].map({0:"female",1:"male"})
+        st.dataframe(df.head(20))
+
         from sklearn.model_selection import train_test_split
         from sklearn.svm import SVC
-        from sklearn.feature_selection import SelectKBest, f_classif
         from sklearn.preprocessing import StandardScaler
-        from sklearn.metrics import confusion_matrix, roc_curve, auc
-
-        # FILTER
-        pitch_range = st.sidebar.slider("Pitch Range",
-                                       float(df.mean_pitch.min()),
-                                       float(df.mean_pitch.max()),
-                                       (float(df.mean_pitch.min()),
-                                        float(df.mean_pitch.max())))
-
-        df = df[(df.mean_pitch >= pitch_range[0]) & (df.mean_pitch <= pitch_range[1])]
 
         X = df.drop("label", axis=1)
         y = df["label"]
 
         X_scaled = StandardScaler().fit_transform(X)
 
-        selector = SelectKBest(f_classif, k=10)
-        X_selected = selector.fit_transform(X_scaled, y)
-
-        X_train, X_test, y_train, y_test = train_test_split(X_selected, y)
+        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y)
 
         model_svm = SVC(kernel="rbf", C=5, probability=True)
         model_svm.fit(X_train, y_train)
 
-        y_pred = model_svm.predict(X_test)
-
         st.success(f"Accuracy: {round(model_svm.score(X_test,y_test)*100,2)}%")
 
-        # 10 GRAPHS
         for i, col in enumerate(X.columns[:10]):
-            st.plotly_chart(px.histogram(df, x=col, color="label",
-                                         title=f"{i+1}. {col}",
-                                         color_discrete_map={"male":"blue","female":"pink"}))
-
-        # CONFUSION
-        cm = confusion_matrix(y_test, y_pred)
-        st.plotly_chart(px.imshow(cm, text_auto=True, title="Confusion Matrix"))
-
-        # ROC
-        y_prob = model_svm.predict_proba(X_test)[:,1]
-        fpr, tpr, _ = roc_curve(y_test, y_prob, pos_label="male")
-        roc_auc = auc(fpr, tpr)
-
-        roc_df = pd.DataFrame({"FPR":fpr,"TPR":tpr})
-        st.plotly_chart(px.line(roc_df, x="FPR", y="TPR",
-                                title=f"ROC Curve (AUC={round(roc_auc,2)})"))
+            st.plotly_chart(px.histogram(
+                df, x=col, color="label",
+                title=f"{i+1}. {col}",
+                template="plotly_dark"
+            ))
 
 # ================= CLUSTERING =================
 elif menu=="Clustering":
-    st.title("🔍 Clustering Analysis")
+    st.title("🔍 Clustering")
 
     df = load_data()
     if df is not None:
         from sklearn.preprocessing import StandardScaler
-        from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
-        from sklearn.mixture import GaussianMixture
+        from sklearn.cluster import KMeans
         from sklearn.metrics import silhouette_score
-        from sklearn.decomposition import PCA
 
         X = df.drop("label", axis=1)
         X_scaled = StandardScaler().fit_transform(X)
 
-        models = {
-            "Agglomerative": AgglomerativeClustering(n_clusters=2),
-            "KMeans": KMeans(n_clusters=2),
-            "GMM": GaussianMixture(n_components=2),
-            "DBSCAN": DBSCAN()
-        }
-
-        results = []
-
-        for name, model in models.items():
-            labels = model.fit_predict(X_scaled)
-            score = silhouette_score(X_scaled, labels) if len(set(labels))>1 else -1
-            results.append((name, score))
-
-        result_df = pd.DataFrame(results, columns=["Model","Silhouette Score"])
-
-        st.dataframe(result_df)
-
-        st.plotly_chart(px.bar(result_df, x="Model", y="Silhouette Score",
-                               title="Model Comparison"))
-
-        # PCA
-        pca = PCA(n_components=2)
-        X_pca = pca.fit_transform(X_scaled)
-
         kmeans = KMeans(n_clusters=2)
-        clusters = kmeans.fit_predict(X_scaled)
+        labels = kmeans.fit_predict(X_scaled)
 
-        pca_df = pd.DataFrame({
-            "PC1": X_pca[:,0],
-            "PC2": X_pca[:,1],
-            "Cluster": clusters,
-            "Actual": df["label"]
-        })
+        st.write("Score:", silhouette_score(X_scaled, labels))
 
-        col1, col2 = st.columns(2)
+        df["cluster"] = labels
 
-        with col1:
-            st.plotly_chart(px.scatter(pca_df, x="PC1", y="PC2", color="Cluster"))
-
-        with col2:
-            st.plotly_chart(px.scatter(pca_df, x="PC1", y="PC2", color="Actual"))
+        st.plotly_chart(px.histogram(df, x="cluster"))
+        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="cluster"))
+        st.plotly_chart(px.histogram(df, x="cluster", color="label"))
+        st.plotly_chart(px.box(df, x="cluster", y="mean_pitch"))
+        st.plotly_chart(px.box(df, x="cluster", y="rms_energy"))
+        st.plotly_chart(px.scatter(df, x="mean_spectral_centroid", y="mean_spectral_bandwidth", color="cluster"))
 
 # ================= AUDIO =================
 elif menu=="Audio":
@@ -260,14 +246,15 @@ elif menu=="Audio":
         st.audio("temp.wav")
 
         f = extract_features("temp.wav")
-        df = pd.DataFrame(f)
-        f = scaler.transform(df)
+        df_feat = pd.DataFrame(f, columns=load_data().drop("label", axis=1).columns)
+        f_scaled = scaler.transform(df_feat)
 
-        proba = model.predict_proba(f)
+        proba = model.predict_proba(f_scaled)
         classes = model.classes_
 
         result = dict(zip(classes, proba[0]))
-        st.success(f"Prediction: {max(result, key=result.get)}")
+
+        st.success(f"🎯 Prediction: {max(result, key=result.get)}")
         st.info(result)
 
     st.markdown("### 🎤 Record Voice")
