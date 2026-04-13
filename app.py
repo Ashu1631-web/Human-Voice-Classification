@@ -8,12 +8,47 @@ import os
 
 st.set_page_config(page_title="👥 Human Clustering Classification", layout="wide")
 
+# ================= THEME TOGGLE =================
+theme = st.sidebar.toggle("🌗 Dark / Light Mode", value=True)
+
+bg_color = "#0E1117" if theme else "#FFFFFF"
+text_color = "#FFFFFF" if theme else "#000000"
+
+# ================= UI (ANIMATED BG + GLASS) =================
+st.markdown(f"""
+<style>
+.stApp {{
+    background: linear-gradient(270deg, #0f2027, #203a43, #2c5364);
+    background-size: 600% 600%;
+    animation: gradientBG 15s ease infinite;
+    color: {text_color};
+}}
+
+@keyframes gradientBG {{
+    0% {{background-position:0% 50%}}
+    50% {{background-position:100% 50%}}
+    100% {{background-position:0% 50%}}
+}}
+
+.glass {{
+    background: rgba(0,0,0,0.6);
+    padding: 25px;
+    border-radius: 20px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0px 0px 20px rgba(0,0,0,0.5);
+}}
+</style>
+""", unsafe_allow_html=True)
+
 # ================= LOGIN =================
 if "login" not in st.session_state:
     st.session_state.login = False
 
 def login():
+    st.markdown("<div class='glass'>", unsafe_allow_html=True)
+
     st.title("🔐 Human Clustering Classification Login")
+
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
 
@@ -22,6 +57,8 @@ def login():
             st.session_state.login = True
         else:
             st.error("Invalid credentials ❌")
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= LOAD =================
 @st.cache_resource
@@ -38,7 +75,7 @@ def load_data():
         return pd.read_csv("vocal_gender_features_new.csv")
     return None
 
-# ================= FEATURE EXTRACTION =================
+# ================= FEATURES =================
 def extract_features(file):
     import librosa
     y, sr = librosa.load(file, duration=3)
@@ -63,41 +100,37 @@ if not st.session_state.login:
     login()
     st.stop()
 
-menu = st.sidebar.radio("Menu", ["Overview","Audio","EDA","Classification","Clustering"])
+menu = st.sidebar.radio("🚀 Navigation", ["Overview","Audio","EDA","Classification","Clustering"])
 
 # ================= OVERVIEW =================
 if menu=="Overview":
+    st.markdown("<div class='glass'>", unsafe_allow_html=True)
+
     st.title("👥 Human Voice Clustering AI")
 
     st.markdown("""
 ### 🧩 Introduction
-This project aims to explore how human voice characteristics can be analyzed using machine learning to classify gender and group similar voice patterns using clustering techniques.
+This project analyzes voice signals using ML to classify gender and cluster similar voices.
 
 ### ❗ Problem Statement
-There is a need for a lightweight, feature-based ML system that:
+- Gender classification  
+- Voice clustering  
+- Deployable ML system  
 
-- Classifies a voice sample's gender.
-- Clusters unlabeled voices into meaningful groups.
-- Is easy to deploy in web apps.
+### 💡 Solution
+- SVM Classification  
+- KMeans Clustering  
 
-### 💡 Proposed Solution
-- Classification using SVM  
-- Clustering using K-Means, DBSCAN, etc.  
-
-### 🛠️ Technologies Used
-
-| Component | Technology |
-|----------|----------|
-| Language | Python |
-| Data Analysis | pandas, NumPy |
-| Visualization | Matplotlib, Seaborn |
-| ML | scikit-learn |
-| Interface | Streamlit |
-| Deployment | Pickle |
+### 🛠 Tech Stack
+Python | pandas | sklearn | Streamlit
 """)
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= AUDIO =================
 elif menu=="Audio":
+    st.markdown("<div class='glass'>", unsafe_allow_html=True)
+
     file = st.file_uploader("Upload Audio", type=["wav","mp3"])
 
     if file:
@@ -108,7 +141,6 @@ elif menu=="Audio":
 
         if st.button("Analyze"):
             f = extract_features("temp.wav")
-
             df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
             f = scaler.transform(df)
 
@@ -118,6 +150,8 @@ elif menu=="Audio":
             st.success(f"🎯 Prediction: {pred}")
             st.info(f"Confidence: {proba}")
 
+    st.markdown("</div>", unsafe_allow_html=True)
+
 # ================= EDA =================
 elif menu=="EDA":
     df = load_data()
@@ -125,20 +159,10 @@ elif menu=="EDA":
     if df is not None:
         st.title("📊 EDA Dashboard")
 
-        # 1. Gender Distribution
-        st.subheader("1. Gender Class Distribution")
         st.plotly_chart(px.histogram(df, x="label", color="label"))
-
-        # 2. Correlation Heatmap
-        st.subheader("2. Correlation Heatmap")
         st.plotly_chart(px.imshow(df.corr()))
 
-        # 3. Feature Distribution by Gender
-        st.subheader("3. Feature Distribution by Gender")
-
-        features = ["mean_pitch","zero_crossing_rate","rms_energy","log_energy","mfcc_1_mean"]
-
-        for f in features:
+        for f in ["mean_pitch","zero_crossing_rate","rms_energy","log_energy","mfcc_1_mean"]:
             st.plotly_chart(px.box(df, x="label", y=f, color="label"))
 
 # ================= CLASSIFICATION =================
@@ -146,64 +170,51 @@ elif menu=="Classification":
     df = load_data()
 
     if df is not None:
-        st.title("🤖 Classification (SVM + Feature Selection)")
+        st.title("🤖 SVM Classification")
 
         from sklearn.model_selection import train_test_split
         from sklearn.svm import SVC
-        from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
         from sklearn.feature_selection import SelectKBest, f_classif
         from sklearn.preprocessing import StandardScaler
+        from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
         import matplotlib.pyplot as plt
         import seaborn as sns
 
-        # ⚙️ SETTINGS INLINE (NOT SIDEBAR)
-        st.subheader("⚙️ Feature Selection & SVM Tuning")
+        st.subheader("⚙️ Settings")
 
-        k = st.slider("Number of Features to Select", 5, 43, 5)
-        kernel = st.selectbox("SVM Kernel", ["linear","rbf"])
-        C = st.slider("Regularization (C)", 0.01,10.0,1.0)
-        gamma = st.selectbox("Gamma", ["scale","auto"])
+        k = st.slider("Features", 5, 43, 5)
+        kernel = st.selectbox("Kernel", ["linear","rbf"])
+        C = st.slider("C", 0.01,10.0,1.0)
 
         X = df.drop("label", axis=1)
         y = df["label"]
 
         selector = SelectKBest(f_classif, k=k)
-        X_new = selector.fit_transform(X,y)
+        X = selector.fit_transform(X,y)
 
-        selected_features = X.columns[selector.get_support()]
-        st.write("⭐ Top Selected Features:", list(selected_features))
-
-        X_train, X_test, y_train, y_test = train_test_split(X_new,y,test_size=0.2,random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(X,y,test_size=0.2)
 
         scaler_local = StandardScaler()
         X_train = scaler_local.fit_transform(X_train)
         X_test = scaler_local.transform(X_test)
 
-        clf = SVC(kernel=kernel, C=C, gamma=gamma, probability=True)
+        clf = SVC(kernel=kernel, C=C, probability=True)
         clf.fit(X_train,y_train)
 
         y_pred = clf.predict(X_test)
 
-        # Report
-        st.subheader("📄 Classification Report")
         st.text(classification_report(y_test,y_pred))
 
-        # Confusion Matrix
-        st.subheader("📊 Confusion Matrix")
         cm = confusion_matrix(y_test,y_pred)
         fig, ax = plt.subplots()
         sns.heatmap(cm, annot=True, fmt="d", ax=ax)
         st.pyplot(fig)
 
-        # ROC
-        st.subheader("📈 ROC Curve")
         y_prob = clf.predict_proba(X_test)[:,1]
         fpr, tpr, _ = roc_curve(y_test.map({"female":0,"male":1}), y_prob)
-        roc_auc = auc(fpr,tpr)
 
         fig2, ax2 = plt.subplots()
-        ax2.plot(fpr, tpr, label=f"AUC={roc_auc:.2f}")
-        ax2.legend()
+        ax2.plot(fpr,tpr)
         st.pyplot(fig2)
 
 # ================= CLUSTERING =================
@@ -215,10 +226,9 @@ elif menu=="Clustering":
         from sklearn.preprocessing import StandardScaler
 
         X = df.drop("label", axis=1)
-        X_scaled = StandardScaler().fit_transform(X)
+        X = StandardScaler().fit_transform(X)
 
-        kmeans = KMeans(n_clusters=2, random_state=42)
-        df["cluster"] = kmeans.fit_predict(X_scaled)
+        kmeans = KMeans(n_clusters=2)
+        df["cluster"] = kmeans.fit_predict(X)
 
-        st.plotly_chart(px.histogram(df, x="cluster"))
         st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="cluster"))
