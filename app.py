@@ -6,14 +6,14 @@ import plotly.express as px
 from scipy.stats import skew, kurtosis
 import os
 
-st.set_page_config(page_title="👥 Human Voice Classification", layout="wide")
+st.set_page_config(page_title="👥 Human Voice AI", layout="wide")
 
 # ================= LOGIN =================
 if "login" not in st.session_state:
     st.session_state.login = False
 
 def login():
-    st.title("🔐 Human Voice Classification Login")
+    st.title("🔐 Login")
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
 
@@ -21,7 +21,7 @@ def login():
         if (u=="admin" and p=="admin123") or (u=="user" and p=="user123"):
             st.session_state.login = True
         else:
-            st.error("Invalid credentials ❌")
+            st.error("Invalid ❌")
 
 # ================= LOAD =================
 @st.cache_resource
@@ -34,11 +34,9 @@ model, scaler = load_models()
 
 @st.cache_data
 def load_data():
-    if os.path.exists("vocal_gender_features_new.csv"):
-        return pd.read_csv("vocal_gender_features_new.csv")
-    return None
+    return pd.read_csv("vocal_gender_features_new.csv")
 
-# ================= FEATURE EXTRACTION =================
+# ================= FEATURES =================
 def extract_features(file):
     import librosa
     y, sr = librosa.load(file, duration=3)
@@ -57,29 +55,13 @@ def extract_features(file):
     f.append(np.mean(librosa.feature.rms(y=y)))
 
     pitch = librosa.yin(y, fmin=50, fmax=300)
-    f.extend([np.mean(pitch), np.min(pitch), np.max(pitch), np.std(pitch)])
-
-    f.append(skew(y))
-    f.append(kurtosis(y))
+    f.extend([np.mean(pitch), np.std(pitch)])
 
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
     for i in range(13):
         f.append(np.mean(mfcc[i]))
-        f.append(np.std(mfcc[i]))
 
     return np.array(f).reshape(1, -1)
-
-FEATURE_COLUMNS = [
- 'mean_spectral_centroid','std_spectral_centroid','mean_spectral_bandwidth','std_spectral_bandwidth',
- 'mean_spectral_contrast','mean_spectral_flatness','mean_spectral_rolloff','zero_crossing_rate',
- 'rms_energy','mean_pitch','min_pitch','max_pitch','std_pitch',
- 'spectral_skew','spectral_kurtosis','energy_entropy','log_energy',
- 'mfcc_1_mean','mfcc_1_std','mfcc_2_mean','mfcc_2_std','mfcc_3_mean','mfcc_3_std',
- 'mfcc_4_mean','mfcc_4_std','mfcc_5_mean','mfcc_5_std','mfcc_6_mean','mfcc_6_std',
- 'mfcc_7_mean','mfcc_7_std','mfcc_8_mean','mfcc_8_std','mfcc_9_mean','mfcc_9_std',
- 'mfcc_10_mean','mfcc_10_std','mfcc_11_mean','mfcc_11_std','mfcc_12_mean','mfcc_12_std',
- 'mfcc_13_mean','mfcc_13_std'
-]
 
 # ================= MAIN =================
 if not st.session_state.login:
@@ -93,117 +75,103 @@ if menu=="Overview":
     st.title("🎙️ Human Voice Classification and Clustering")
 
     st.markdown("""
-## 🧩 Introduction
-Analyze voice patterns using ML.
-
-## ❗ Problem Statement
-- Gender classification  
-- Voice clustering  
-
-## 💡 Solution
-- SVM Classification  
-- KMeans Clustering  
-
-## 🛠️ Tech Stack
-Python | Pandas | Scikit-learn | Streamlit
+- Gender Detection  
+- Voice Clustering  
+- ML based analysis  
 """)
 
 # ================= EDA =================
 elif menu=="EDA":
     df = load_data()
+    df["label"] = df["label"].map({0:"female",1:"male"})
 
-    if df is not None:
-        df["label"] = df["label"].map({0:"female",1:"male"})
+    st.title("📊 EDA (10 Graphs)")
 
-        st.title("📊 Exploratory Data Analysis")
+    features = df.drop("label", axis=1).columns[:10]
 
-        # 1️⃣
-        st.markdown("### 1️⃣ Gender Distribution")
-        st.plotly_chart(px.histogram(df, x="label", color="label"))
-
-        # 2️⃣
-        st.markdown("### 2️⃣ Correlation Heatmap")
-        st.plotly_chart(px.imshow(df.corr()))
-
-        # 3️⃣
-        st.markdown("### 3️⃣ Feature Distribution")
-        st.plotly_chart(px.histogram(df, x="mean_pitch", color="label"))
-        st.plotly_chart(px.histogram(df, x="rms_energy", color="label"))
-
-        # 4️⃣
-        st.markdown("### 4️⃣ Feature Relationship")
-        st.plotly_chart(px.scatter(df, x="mean_pitch", y="rms_energy", color="label"))
+    for i, col in enumerate(features):
+        st.plotly_chart(px.histogram(
+            df, x=col, color="label",
+            title=f"{i+1}. {col} Distribution"
+        ))
 
 # ================= CLASSIFICATION =================
 elif menu=="Classification":
-    st.title("🧠 Voice Classification")
+    st.title("🧠 Classification")
 
     df = load_data()
+    df["label"] = df["label"].map({0:"female",1:"male"})
 
-    if df is not None:
-        df["label"] = df["label"].map({0:"female",1:"male"})
+    from sklearn.model_selection import train_test_split
+    from sklearn.svm import SVC
+    from sklearn.feature_selection import SelectKBest, f_classif
+    from sklearn.preprocessing import StandardScaler
 
-        from sklearn.model_selection import train_test_split
-        from sklearn.svm import SVC
-        from sklearn.feature_selection import SelectKBest, f_classif
-        from sklearn.preprocessing import StandardScaler
+    st.sidebar.markdown("### ⚙️ Feature Tuning")
+    k = st.sidebar.slider("Features", 5, 20, 10)
 
-        st.sidebar.markdown("### ⚙️ Tuning")
-        k = st.sidebar.slider("Select Features", 5, 20, 10)
+    X = df.drop("label", axis=1)
+    y = df["label"]
 
-        X = df.drop("label", axis=1)
-        y = df["label"]
+    X_scaled = StandardScaler().fit_transform(X)
 
-        X_scaled = StandardScaler().fit_transform(X)
+    selector = SelectKBest(f_classif, k=k)
+    X_selected = selector.fit_transform(X_scaled, y)
 
-        selector = SelectKBest(f_classif, k=k)
-        X_selected = selector.fit_transform(X_scaled, y)
+    selected = X.columns[selector.get_support()]
+    scores = selector.scores_[selector.get_support()]
 
-        selected = X.columns[selector.get_support()]
-        scores = selector.scores_[selector.get_support()]
+    X_train, X_test, y_train, y_test = train_test_split(X_selected, y)
 
-        X_train, X_test, y_train, y_test = train_test_split(X_selected, y)
+    model_svm = SVC(kernel="linear")
+    model_svm.fit(X_train, y_train)
 
-        model_svm = SVC(kernel="linear")
-        model_svm.fit(X_train, y_train)
+    st.success(f"Accuracy: {round(model_svm.score(X_test,y_test)*100,2)}%")
 
-        st.success(f"Accuracy: {round(model_svm.score(X_test,y_test)*100,2)}%")
-
-        df_feat = pd.DataFrame({"Feature": selected, "Score": scores}).sort_values("Score")
-
-        st.plotly_chart(px.bar(df_feat, x="Score", y="Feature", orientation='h'))
+    df_feat = pd.DataFrame({"Feature": selected, "Score": scores})
+    st.plotly_chart(px.bar(df_feat, x="Score", y="Feature", orientation='h'))
 
 # ================= CLUSTERING =================
 elif menu=="Clustering":
-    st.title("🔍 Clustering Analysis")
+    st.title("🔍 Clustering")
 
     df = load_data()
 
-    if df is not None:
-        from sklearn.preprocessing import StandardScaler
-        from sklearn.cluster import KMeans
-        from sklearn.metrics import silhouette_score
-        from sklearn.decomposition import PCA
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.cluster import KMeans, DBSCAN
+    from sklearn.mixture import GaussianMixture
+    from sklearn.metrics import silhouette_score
+    from sklearn.decomposition import PCA
 
-        X = df.drop("label", axis=1)
-        X_scaled = StandardScaler().fit_transform(X)
+    X = df.drop("label", axis=1)
+    X_scaled = StandardScaler().fit_transform(X)
 
-        kmeans = KMeans(n_clusters=2)
-        labels = kmeans.fit_predict(X_scaled)
+    models = {
+        "KMeans": KMeans(n_clusters=2),
+        "GMM": GaussianMixture(n_components=2),
+        "DBSCAN": DBSCAN()
+    }
 
-        score = silhouette_score(X_scaled, labels)
-        st.write("Silhouette Score:", round(score,3))
+    results = []
 
-        pca = PCA(n_components=2)
-        X_pca = pca.fit_transform(X_scaled)
+    for name, model in models.items():
+        labels = model.fit_predict(X_scaled)
+        score = silhouette_score(X_scaled, labels) if len(set(labels))>1 else -1
+        results.append((name, score))
 
-        pca_df = pd.DataFrame({
-            "PC1": X_pca[:,0],
-            "PC2": X_pca[:,1],
-            "Cluster": labels
-        })
+    result_df = pd.DataFrame(results, columns=["Model","Score"])
+    st.dataframe(result_df)
 
-        st.plotly_chart(px.scatter(pca_df, x="PC1", y="PC2", color="Cluster"))
+    st.plotly_chart(px.bar(result_df, x="Model", y="Score", title="Model Comparison"))
+
+    # PCA
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(X_scaled)
+
+    st.plotly_chart(px.scatter(
+        x=X_pca[:,0], y=X_pca[:,1],
+        title="PCA Visualization"
+    ))
 
 # ================= AUDIO =================
 elif menu=="Audio":
@@ -216,22 +184,18 @@ elif menu=="Audio":
         st.audio("temp.wav")
 
         f = extract_features("temp.wav")
-        df = pd.DataFrame(f, columns=FEATURE_COLUMNS)
 
-        f = scaler.transform(df)
-        proba = model.predict_proba(f)
+        # 🔥 FIX (IMPORTANT)
+        df_feat = pd.DataFrame(f, columns=scaler.feature_names_in_)
 
-        female_prob = proba[0][0]
-        male_prob = proba[0][1]
+        f_scaled = scaler.transform(df_feat)
 
-        if female_prob > 0.6:
-            result = "Female 👩"
-        elif male_prob > 0.6:
-            result = "Male 👨"
-        else:
-            result = "Uncertain ⚠️"
+        proba = model.predict_proba(f_scaled)
+
+        result = model.classes_[np.argmax(proba)]
 
         st.success(f"🎯 Prediction: {result}")
+        st.info(proba)
 
     st.markdown("### 🎤 Record Voice")
     audio = st.audio_input("Record")
