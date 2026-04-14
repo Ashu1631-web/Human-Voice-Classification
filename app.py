@@ -146,6 +146,18 @@ input[type="text"], input[type="password"] {
     border: none; border-top: 1px solid var(--border);
     margin: 1.5rem 0;
 }
+
+.debug-box {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 12px;
+    padding: 1rem 1.4rem;
+    margin-top: 1rem;
+    font-size: 0.82rem;
+    color: #ccc;
+    line-height: 1.8;
+}
+.debug-box b { color: #00b89a; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -235,18 +247,18 @@ def convert_to_wav(input_path, output_path="converted_audio.wav"):
 
 
 def try_read_audio_directly(filepath):
-    """ffmpeg ke bina audio directly padhne ki koshish — WebM/WebA/WAV/MP3 sab."""
+    """ffmpeg ke bina audio directly padhne ki koshish."""
     import librosa
 
-    # Method 1: librosa direct (works for wav, mp3, sometimes webm via audioread)
+    # Method 1: librosa direct
     try:
-        y, sr = librosa.load(filepath, sr=22050, duration=3, mono=True)
+        y, sr = librosa.load(filepath, sr=22050, duration=6, mono=True)
         if len(y) > 512:
             return y, sr, None
     except Exception:
         pass
 
-    # Method 2: soundfile (wav, flac, ogg)
+    # Method 2: soundfile
     try:
         import soundfile as sf
         data, sr = sf.read(filepath)
@@ -255,26 +267,26 @@ def try_read_audio_directly(filepath):
         y = data.astype(np.float32)
         if sr != 22050:
             y = librosa.resample(y, orig_sr=sr, target_sr=22050)
-        y = y[:22050 * 3]
+        y = y[:22050 * 6]
         if len(y) > 512:
             return y, 22050, None
     except Exception:
         pass
 
-    # Method 3: pydub (mp3, webm, ogg — needs ffmpeg OR avconv but worth trying)
+    # Method 3: pydub
     try:
         from pydub import AudioSegment
         audio = AudioSegment.from_file(filepath)
         audio = audio.set_frame_rate(22050).set_channels(1)
         samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
         samples /= np.iinfo(audio.array_type).max
-        y = samples[:22050 * 3]
+        y = samples[:22050 * 6]
         if len(y) > 512:
             return y, 22050, None
     except Exception:
         pass
 
-    return None, None, "All audio reading methods failed. Please install ffmpeg."
+    return None, None, "Sab methods fail ho gaye. ffmpeg install karein."
 
 
 # ================= FEATURE EXTRACTION =================
@@ -282,27 +294,26 @@ def extract_features(filepath):
     try:
         import librosa
 
-        # --- Try loading audio ---
         y, sr = None, None
 
-        # 1. Try ffmpeg conversion first (most reliable)
+        # Step 1: ffmpeg conversion (most reliable)
         converted, err = convert_to_wav(filepath, "converted_audio.wav")
         if converted:
             try:
-                y, sr = librosa.load(converted, duration=3, sr=22050)
+                y, sr = librosa.load(converted, duration=6, sr=22050)
             except Exception:
                 y = None
 
-        # 2. Fallback: direct reading without ffmpeg
+        # Step 2: fallback — direct read
         if y is None or len(y) < 512:
             y_d, sr_d, err_d = try_read_audio_directly(filepath)
             if y_d is not None and len(y_d) > 512:
                 y, sr = y_d, sr_d
             else:
-                return None, f"Audio load karne mein problem: {err_d or err or 'Unknown error'}. ffmpeg install karein."
+                return None, f"Audio load nahi hua: {err_d or err or 'Unknown'}. ffmpeg install karein."
 
         if len(y) < 512:
-            return None, "Audio signal bahut chhota hai — kam se kam 1 second record karein."
+            return None, "Audio bahut chhota hai — kam se kam 2 second record karein."
 
         feats = []
 
@@ -318,8 +329,18 @@ def extract_features(filepath):
         feats.append(np.mean(librosa.feature.zero_crossing_rate(y)))
         feats.append(np.mean(librosa.feature.rms(y=y)))
 
-        pitch = librosa.yin(y, fmin=50, fmax=300)
-        feats.extend([np.mean(pitch), np.min(pitch), np.max(pitch), np.std(pitch)])
+        # Wider pitch range — male low pitch (40 Hz) bhi pakde
+        pitch = librosa.yin(y, fmin=40, fmax=400)
+        # Unvoiced frames (near-zero) hata do
+        pitch_voiced = pitch[pitch > 40]
+        if len(pitch_voiced) == 0:
+            pitch_voiced = pitch
+        feats.extend([
+            np.mean(pitch_voiced),
+            np.min(pitch_voiced),
+            np.max(pitch_voiced),
+            np.std(pitch_voiced)
+        ])
 
         feats.append(float(skew(y)))
         feats.append(float(kurtosis(y)))
@@ -337,6 +358,9 @@ def extract_features(filepath):
 
 
 # ================= PREDICT HELPER =================
+# 60% se kam confidence = "Possibly" dikhao
+CONFIDENCE_THRESHOLD = 0.60
+
 def predict_and_display(filepath, model, scaler):
     feats, err = extract_features(filepath)
     if err:
@@ -344,6 +368,7 @@ def predict_and_display(filepath, model, scaler):
         return
 
     df_feat = pd.DataFrame(feats, columns=FEATURE_COLUMNS)
+
     try:
         feats_scaled = scaler.transform(df_feat)
     except Exception as e:
@@ -357,7 +382,7 @@ def predict_and_display(filepath, model, scaler):
         st.error(f"❌ Model prediction error: {e}")
         return
 
-    # --- Class mapping ---
+    # --- Class index mapping ---
     classes = list(model.classes_)
     female_idx, male_idx = None, None
 
@@ -373,9 +398,9 @@ def predict_and_display(filepath, model, scaler):
             try:
                 val = int(c)
                 if val == 0:
-                    male_idx = i
+                    male_idx = i      # CSV: 0 = Male
                 elif val == 1:
-                    female_idx = i
+                    female_idx = i    # CSV: 1 = Female
             except (ValueError, TypeError):
                 pass
 
@@ -390,26 +415,17 @@ def predict_and_display(filepath, model, scaler):
     female_prob = float(proba[female_idx])
     male_prob   = float(proba[male_idx])
 
-    pred_str = str(prediction).strip().lower()
-    if pred_str in ("female", "f"):
+    # --- Confidence threshold ---
+    if female_prob >= CONFIDENCE_THRESHOLD:
         result, badge_cls = "Female 👩", "pred-female"
-    elif pred_str in ("male", "m"):
+    elif male_prob >= CONFIDENCE_THRESHOLD:
         result, badge_cls = "Male 👨", "pred-male"
     else:
-        try:
-            pred_val = int(prediction)
-        except (ValueError, TypeError):
-            pred_val = -1
-
-        if pred_val == 0:
-            result, badge_cls = "Male 👨", "pred-male"
-        elif pred_val == 1:
-            result, badge_cls = "Female 👩", "pred-female"
+        # Low confidence — raw prediction se decide karo lekin "Possibly" lagao
+        if female_prob > male_prob:
+            result, badge_cls = "Possibly Female 👩", "pred-unk"
         else:
-            if female_prob > male_prob:
-                result, badge_cls = "Female 👩", "pred-female"
-            else:
-                result, badge_cls = "Male 👨", "pred-male"
+            result, badge_cls = "Possibly Male 👨", "pred-unk"
 
     st.markdown(f"<div class='pred-badge {badge_cls}'>🎯 {result}</div>", unsafe_allow_html=True)
 
@@ -424,7 +440,30 @@ def predict_and_display(filepath, model, scaler):
     </div>
     """, unsafe_allow_html=True)
 
-    with st.expander("📋 Extracted Features"):
+    # Debug info — pitch value dikhao
+    mean_pitch_val = float(df_feat['mean_pitch'].iloc[0])
+    pitch_note = ""
+    if mean_pitch_val < 85:
+        pitch_note = "⚠️ Pitch bahut low — noise/silence ho sakta hai"
+    elif mean_pitch_val <= 180:
+        pitch_note = "✅ Typical male pitch range"
+    elif mean_pitch_val <= 255:
+        pitch_note = "✅ Typical female pitch range"
+    else:
+        pitch_note = "⚠️ Pitch bahut high — recording check karein"
+
+    st.markdown(f"""
+    <div class='debug-box'>
+        <b>Debug Info</b><br>
+        🎵 <b>Mean Pitch:</b> {mean_pitch_val:.1f} Hz &nbsp;—&nbsp; {pitch_note}<br>
+        📊 <b>Female:</b> {female_prob*100:.1f}% &nbsp;|&nbsp;
+           <b>Male:</b> {male_prob*100:.1f}% &nbsp;|&nbsp;
+           <b>Threshold:</b> {CONFIDENCE_THRESHOLD*100:.0f}%<br>
+        💡 <b>Normal range:</b> Male = 85–180 Hz, Female = 165–255 Hz
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("📋 All Extracted Features"):
         st.dataframe(df_feat.T.rename(columns={0: "Value"}), use_container_width=True)
 
 
@@ -441,11 +480,6 @@ PLOT_LAYOUT = dict(
 
 FEMALE_COLOR = "#e8457a"
 MALE_COLOR   = "#e03a3a"
-COLOR_MAP    = {
-    "female": FEMALE_COLOR, "male": MALE_COLOR,
-    "Female": FEMALE_COLOR, "Male": MALE_COLOR,
-    0: MALE_COLOR, 1: FEMALE_COLOR
-}
 
 def apply_theme(fig):
     fig.update_layout(**PLOT_LAYOUT)
@@ -474,7 +508,7 @@ An AI-powered pipeline that analyses raw voice audio to perform **gender detecti
     <div class='metric-card'><div class='val'>2</div><div class='lbl'>Classes</div></div>
     <div class='metric-card'><div class='val'>43</div><div class='lbl'>Features</div></div>
     <div class='metric-card'><div class='val'>13</div><div class='lbl'>MFCC Bands</div></div>
-    <div class='metric-card'><div class='val'>3s</div><div class='lbl'>Audio Window</div></div>
+    <div class='metric-card'><div class='val'>6s</div><div class='lbl'>Audio Window</div></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -500,7 +534,7 @@ An AI-powered pipeline that analyses raw voice audio to perform **gender detecti
 ```
 Audio File / Mic
       ↓
-  Librosa Load
+  Librosa Load (6s)
       ↓
 Feature Extraction (43 features)
       ↓
@@ -530,7 +564,7 @@ def page_audio(model, scaler):
     if model is None:
         st.warning("⚠️ model.pkl / scaler.pkl not found. Place them in the project directory.")
 
-    # ffmpeg status check
+    # ffmpeg check
     import subprocess
     try:
         subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
@@ -540,11 +574,11 @@ def page_audio(model, scaler):
 
     if not ffmpeg_ok:
         st.info(
-            "ℹ️ **ffmpeg not detected.** Live recording aur kuch audio formats ke liye ffmpeg install karein.\n\n"
+            "ℹ️ **ffmpeg not detected.** Live recording ke liye ffmpeg install karein.\n\n"
             "- **Windows:** `winget install ffmpeg` ya `choco install ffmpeg`\n"
             "- **Mac:** `brew install ffmpeg`\n"
             "- **Linux:** `sudo apt install ffmpeg`\n"
-            "- **Streamlit Cloud:** root folder mein `packages.txt` banao aur usme `ffmpeg` likho"
+            "- **Streamlit Cloud:** root mein `packages.txt` banao → sirf `ffmpeg` likho"
         )
 
     tab1, tab2 = st.tabs(["📁 Upload Audio", "🔴 Live Recording"])
@@ -573,10 +607,10 @@ def page_audio(model, scaler):
     with tab2:
         st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
         st.markdown(
-            "Mic button dabao, 2–3 second bolo, phir stop karo. "
-            "**Analyse Recording** button dabao results ke liye."
+            "🎙️ Mic button dabao, **5-6 second clearly bolo**, phir stop karo. "
+            "Zyada der bolne se accuracy better hoti hai."
         )
-        live_audio = st.audio_input("🎙️ Click to record your voice")
+        live_audio = st.audio_input("Click to record your voice")
 
         if live_audio:
             raw_path = "temp_live_raw.webm"
@@ -591,19 +625,17 @@ def page_audio(model, scaler):
             else:
                 if st.button("🔍 Analyse Recording", key="btn_record"):
                     with st.spinner("Converting & analysing recording…"):
-                        # ffmpeg try karo
                         converted, err = convert_to_wav(raw_path, "temp_live.wav")
                         if converted:
                             predict_and_display(converted, model, scaler)
                         else:
-                            # ffmpeg nahi mila — direct methods try karo
                             if not ffmpeg_ok:
                                 st.warning(
-                                    "⚠️ ffmpeg available nahi hai — direct analysis try kar rahe hain. "
-                                    "Accuracy ke liye ffmpeg install karein."
+                                    "⚠️ ffmpeg nahi mila — direct analysis try kar rahe hain. "
+                                    "Best results ke liye ffmpeg install karein."
                                 )
                             else:
-                                st.warning(f"⚠️ Conversion issue: {err} — direct analysis try kar rahe hain…")
+                                st.warning(f"⚠️ Conversion issue ({err}) — direct analysis try kar rahe hain…")
                             predict_and_display(raw_path, model, scaler)
         st.markdown("</div>", unsafe_allow_html=True)
 
