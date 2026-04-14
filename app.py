@@ -75,7 +75,7 @@ h1, h2, h3 {
 
 .login-overlay {
     position: fixed; inset: 0; z-index: 0;
-    background: url('https://images.unsplash.com/photo-1610733661495-4aa6ed9fc6f4?q=80&w=1200&auto=format&fit=crop') center/cover no-repeat;
+    background: url('https://wallpaperaccess.com/full/9253559.jpg') center/cover no-repeat;
     filter: brightness(0.35) saturate(1.4);
 }
 .login-card {
