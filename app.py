@@ -1,14 +1,14 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import pickle
+import joblib
 import plotly.express as px
 from scipy.stats import skew, kurtosis
 import os
 
 st.set_page_config(page_title="Human Clustering Classification", layout="wide", page_icon="👥")
 
-# ================= BASE DIR FIX (Streamlit Cloud ke liye) =================
+# ================= BASE DIR FIX =================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ================= GLOBAL CSS =================
@@ -190,7 +190,7 @@ def login_page():
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-# ================= MODEL LOADING (FIXED) =================
+# ================= MODEL LOADING — JOBLIB FIX =================
 @st.cache_resource
 def load_models():
     try:
@@ -204,14 +204,14 @@ def load_models():
             st.error(f"❌ scaler.pkl nahi mila. Path: {scaler_path} | Files: {os.listdir(BASE_DIR)}")
             return None, None
 
-        model  = pickle.load(open(model_path,  "rb"))
-        scaler = pickle.load(open(scaler_path, "rb"))
+        model  = joblib.load(model_path)
+        scaler = joblib.load(scaler_path)
         return model, scaler
     except Exception as e:
         st.error(f"❌ Model load error: {e}")
         return None, None
 
-# ================= DATA LOADING (FIXED) =================
+# ================= DATA LOADING =================
 @st.cache_data
 def load_data():
     csv_path = os.path.join(BASE_DIR, "vocal_gender_features_new.csv")
@@ -262,10 +262,8 @@ def convert_to_wav(input_path, output_path="converted_audio.wav"):
 
 
 def try_read_audio_directly(filepath):
-    """ffmpeg ke bina audio directly padhne ki koshish."""
     import librosa
 
-    # Method 1: librosa direct
     try:
         y, sr = librosa.load(filepath, sr=22050, duration=6, mono=True)
         if len(y) > 512:
@@ -273,7 +271,6 @@ def try_read_audio_directly(filepath):
     except Exception:
         pass
 
-    # Method 2: soundfile
     try:
         import soundfile as sf
         data, sr = sf.read(filepath)
@@ -288,7 +285,6 @@ def try_read_audio_directly(filepath):
     except Exception:
         pass
 
-    # Method 3: pydub
     try:
         from pydub import AudioSegment
         audio = AudioSegment.from_file(filepath)
@@ -311,7 +307,6 @@ def extract_features(filepath):
 
         y, sr = None, None
 
-        # Step 1: ffmpeg conversion (most reliable)
         converted, err = convert_to_wav(filepath, "converted_audio.wav")
         if converted:
             try:
@@ -319,13 +314,12 @@ def extract_features(filepath):
             except Exception:
                 y = None
 
-        # Step 2: fallback — direct read
         if y is None or len(y) < 512:
             y_d, sr_d, err_d = try_read_audio_directly(filepath)
             if y_d is not None and len(y_d) > 512:
                 y, sr = y_d, sr_d
             else:
-                return None, f"Audio load nahi hua: {err_d or err or 'Unknown'}. ffmpeg install karein."
+                return None, f"Audio load nahi hua: {err_d or err or 'Unknown'}."
 
         if len(y) < 512:
             return None, "Audio bahut chhota hai — kam se kam 2 second record karein."
@@ -344,7 +338,6 @@ def extract_features(filepath):
         feats.append(np.mean(librosa.feature.zero_crossing_rate(y)))
         feats.append(np.mean(librosa.feature.rms(y=y)))
 
-        # Wider pitch range — male low pitch (40 Hz) bhi pakde
         pitch = librosa.yin(y, fmin=40, fmax=400)
         pitch_voiced = pitch[pitch > 40]
         if len(pitch_voiced) == 0:
@@ -418,7 +411,6 @@ def predict_and_display(filepath, model, scaler):
 
     if female_idx is None and male_idx is None:
         female_idx, male_idx = 0, 1
-
     if female_idx is None:
         female_idx = 1 - male_idx
     if male_idx is None:
@@ -451,7 +443,6 @@ def predict_and_display(filepath, model, scaler):
     """, unsafe_allow_html=True)
 
     mean_pitch_val = float(df_feat['mean_pitch'].iloc[0])
-    pitch_note = ""
     if mean_pitch_val < 85:
         pitch_note = "⚠️ Pitch bahut low — noise/silence ho sakta hai"
     elif mean_pitch_val <= 180:
@@ -507,7 +498,6 @@ def page_overview():
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     st.markdown("""
 ### 📌 Project Overview
-
 An AI-powered pipeline that analyses raw voice audio to perform **gender detection** and **unsupervised voice clustering** — built for real-world scale.
 """)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -522,17 +512,16 @@ An AI-powered pipeline that analyses raw voice audio to perform **gender detecti
 """, unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
-
     with col1:
         st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
         st.markdown("""
 #### 🚀 Features
-- 🎤 Upload `.wav` / `.mp3` audio  
-- 🔴 Live microphone recording  
-- 🧠 Gender prediction with confidence  
-- 📊 10-graph EDA dashboard  
-- 📋 Classification table view  
-- 👥 KMeans voice clustering  
+- 🎤 Upload `.wav` / `.mp3` audio
+- 🔴 Live microphone recording
+- 🧠 Gender prediction with confidence
+- 📊 10-graph EDA dashboard
+- 📋 Classification table view
+- 👥 KMeans voice clustering
 """)
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -571,7 +560,8 @@ def page_audio(model, scaler):
     st.markdown("<h1 style='color:#fff; font-size:1.7rem;'>🎤 Audio Detection</h1>", unsafe_allow_html=True)
 
     if model is None:
-        st.warning("⚠️ model.pkl / scaler.pkl not found. Place them in the project directory.")
+        st.warning("⚠️ Model load nahi hua. Baaki settings check karein.")
+        return
 
     import subprocess
     try:
@@ -582,11 +572,11 @@ def page_audio(model, scaler):
 
     if not ffmpeg_ok:
         st.info(
-            "ℹ️ **ffmpeg not detected.** Live recording ke liye ffmpeg install karein.\n\n"
-            "- **Windows:** `winget install ffmpeg` ya `choco install ffmpeg`\n"
+            "ℹ️ **ffmpeg not detected.**\n\n"
+            "- **Streamlit Cloud:** `packages.txt` mein `ffmpeg` likho\n"
+            "- **Windows:** `winget install ffmpeg`\n"
             "- **Mac:** `brew install ffmpeg`\n"
-            "- **Linux:** `sudo apt install ffmpeg`\n"
-            "- **Streamlit Cloud:** root mein `packages.txt` banao → sirf `ffmpeg` likho"
+            "- **Linux:** `sudo apt install ffmpeg`"
         )
 
     tab1, tab2 = st.tabs(["📁 Upload Audio", "🔴 Live Recording"])
@@ -594,22 +584,16 @@ def page_audio(model, scaler):
     with tab1:
         st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
         uploaded = st.file_uploader("Upload a `.wav` or `.mp3` file", type=["wav", "mp3"])
-
         if uploaded:
             ext = os.path.splitext(uploaded.name)[-1].lower() or ".wav"
             save_path = f"temp_upload{ext}"
             with open(save_path, "wb") as f:
                 f.write(uploaded.getbuffer())
-
             st.audio(save_path)
             st.markdown("<hr class='sec-divider'>", unsafe_allow_html=True)
-
             if st.button("🔍 Analyse Audio", key="btn_upload"):
-                if model is None:
-                    st.error("Model not loaded. Cannot predict.")
-                else:
-                    with st.spinner("Extracting features…"):
-                        predict_and_display(save_path, model, scaler)
+                with st.spinner("Extracting features…"):
+                    predict_and_display(save_path, model, scaler)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with tab2:
@@ -619,32 +603,23 @@ def page_audio(model, scaler):
             "Zyada der bolne se accuracy better hoti hai."
         )
         live_audio = st.audio_input("Click to record your voice")
-
         if live_audio:
             raw_path = "temp_live_raw.webm"
             with open(raw_path, "wb") as f:
                 f.write(live_audio.getbuffer())
-
             st.audio(raw_path)
             st.markdown("<hr class='sec-divider'>", unsafe_allow_html=True)
-
-            if model is None:
-                st.error("Model not loaded. Cannot predict.")
-            else:
-                if st.button("🔍 Analyse Recording", key="btn_record"):
-                    with st.spinner("Converting & analysing recording…"):
-                        converted, err = convert_to_wav(raw_path, "temp_live.wav")
-                        if converted:
-                            predict_and_display(converted, model, scaler)
+            if st.button("🔍 Analyse Recording", key="btn_record"):
+                with st.spinner("Converting & analysing recording…"):
+                    converted, err = convert_to_wav(raw_path, "temp_live.wav")
+                    if converted:
+                        predict_and_display(converted, model, scaler)
+                    else:
+                        if not ffmpeg_ok:
+                            st.warning("⚠️ ffmpeg nahi mila — direct analysis try kar rahe hain.")
                         else:
-                            if not ffmpeg_ok:
-                                st.warning(
-                                    "⚠️ ffmpeg nahi mila — direct analysis try kar rahe hain. "
-                                    "Best results ke liye ffmpeg install karein."
-                                )
-                            else:
-                                st.warning(f"⚠️ Conversion issue ({err}) — direct analysis try kar rahe hain…")
-                            predict_and_display(raw_path, model, scaler)
+                            st.warning(f"⚠️ Conversion issue ({err}) — direct try kar rahe hain…")
+                        predict_and_display(raw_path, model, scaler)
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -652,7 +627,7 @@ def page_eda(df):
     st.markdown("<h1 style='color:#fff; font-size:1.7rem;'>📊 Exploratory Data Analysis</h1>", unsafe_allow_html=True)
 
     if df is None:
-        st.warning("⚠️ `vocal_gender_features_new.csv` not found in the project directory.")
+        st.warning("⚠️ `vocal_gender_features_new.csv` not found.")
         return
 
     df = df.copy()
@@ -665,7 +640,6 @@ def page_eda(df):
                            color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
                            title="Class Distribution (Male vs Female)")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with c2:
         fig = px.box(df, x="label", y="mean_pitch", color="label",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -679,7 +653,6 @@ def page_eda(df):
                            nbins=40, barmode="overlay", opacity=0.75,
                            title="Mean Pitch Distribution")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with c2:
         fig = px.histogram(df, x="mean_spectral_centroid", color="label",
                            color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -694,7 +667,6 @@ def page_eda(df):
                            nbins=40, barmode="overlay", opacity=0.75,
                            title="Spectral Bandwidth Distribution")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with c2:
         fig = px.histogram(df, x="rms_energy", color="label",
                            color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -709,7 +681,6 @@ def page_eda(df):
                            nbins=40, barmode="overlay", opacity=0.75,
                            title="MFCC-1 Mean Distribution")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with c2:
         fig = px.histogram(df, x="mfcc_2_mean", color="label",
                            color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -721,16 +692,13 @@ def page_eda(df):
     with c1:
         fig = px.scatter(df, x="mean_pitch", y="rms_energy", color="label",
                          color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
-                         opacity=0.7,
-                         title="Pitch vs RMS Energy")
+                         opacity=0.7, title="Pitch vs RMS Energy")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with c2:
         fig = px.scatter(df, x="mean_spectral_centroid", y="mean_spectral_bandwidth",
                          color="label",
                          color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
-                         opacity=0.7,
-                         title="Spectral Centroid vs Bandwidth")
+                         opacity=0.7, title="Spectral Centroid vs Bandwidth")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
@@ -766,7 +734,6 @@ def page_classification(df):
     st.markdown("<h2 style='color:#fff; font-size:1.2rem; margin-top:1rem;'>📊 Analysis Charts</h2>", unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
-
     with c1:
         counts = df["label"].value_counts().reset_index()
         counts.columns = ["Gender", "Count"]
@@ -774,7 +741,6 @@ def page_classification(df):
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
                      title="1. Sample Count per Class")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with c2:
         num_df = df.select_dtypes(include=np.number)
         means  = df.groupby("label")[num_df.columns.tolist()].mean()
@@ -782,23 +748,19 @@ def page_classification(df):
         fig = px.bar(means[top_features].T.reset_index().melt(id_vars="index"),
                      x="index", y="value", color="label",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
-                     barmode="group",
-                     title="2. Mean Feature Values by Gender (top 8)")
+                     barmode="group", title="2. Mean Feature Values by Gender (top 8)")
         fig.update_xaxes(tickangle=30)
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
     c1, c2 = st.columns(2)
-
     with c1:
         stds = df.groupby("label")[["mean_pitch", "rms_energy", "mean_spectral_centroid",
                                     "mean_spectral_bandwidth", "zero_crossing_rate"]].std().T.reset_index()
         stds = stds.melt(id_vars="index", var_name="Gender", value_name="StdDev")
         fig = px.bar(stds, x="index", y="StdDev", color="Gender",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
-                     barmode="group",
-                     title="3. Std Deviation of Key Features by Gender")
+                     barmode="group", title="3. Std Deviation of Key Features by Gender")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with c2:
         fig = px.box(df, x="label", y="mean_spectral_centroid", color="label",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -806,51 +768,41 @@ def page_classification(df):
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
     c1, c2 = st.columns(2)
-
     with c1:
         fig = px.box(df, x="label", y="rms_energy", color="label",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
                      title="5. RMS Energy by Gender")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with c2:
         fig = px.violin(df, x="label", y="zero_crossing_rate", color="label",
                         color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
-                        box=True,
-                        title="6. Zero Crossing Rate by Gender")
+                        box=True, title="6. Zero Crossing Rate by Gender")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
     c1, c2 = st.columns(2)
-
     with c1:
         mfcc_cols = [f"mfcc_{i}_mean" for i in range(1, 6)]
         mfcc_means = df.groupby("label")[mfcc_cols].mean().T.reset_index()
         mfcc_means = mfcc_means.melt(id_vars="index", var_name="Gender", value_name="MeanValue")
         fig = px.bar(mfcc_means, x="index", y="MeanValue", color="Gender",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
-                     barmode="group",
-                     title="7. MFCC 1–5 Mean by Gender")
+                     barmode="group", title="7. MFCC 1–5 Mean by Gender")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with c2:
         fig = px.scatter(df, x="mean_pitch", y="std_pitch", color="label",
                          color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
-                         opacity=0.65,
-                         title="8. Mean Pitch vs Pitch Std Dev")
+                         opacity=0.65, title="8. Mean Pitch vs Pitch Std Dev")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
     c1, c2 = st.columns(2)
-
     with c1:
         pie_data = df["label"].value_counts().reset_index()
         pie_data.columns = ["Gender", "Count"]
         fig = px.pie(pie_data, names="Gender", values="Count",
                      color="Gender",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
-                     title="9. Class Balance",
-                     hole=0.4)
+                     title="9. Class Balance", hole=0.4)
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with c2:
         fig = px.box(df, x="label", y="mean_spectral_rolloff", color="label",
                      color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
@@ -884,28 +836,23 @@ def page_clustering(df):
                            color_discrete_sequence=[FEMALE_COLOR, MALE_COLOR],
                            title="Cluster Size Distribution")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with col2:
         fig = px.scatter(df, x="mean_pitch", y="rms_energy", color="cluster",
                          color_discrete_sequence=[FEMALE_COLOR, MALE_COLOR],
-                         opacity=0.7,
-                         title="Pitch vs RMS Energy (Clusters)")
+                         opacity=0.7, title="Pitch vs RMS Energy (Clusters)")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
     col1, col2 = st.columns(2)
     with col1:
         fig = px.histogram(df, x="cluster", color="label",
                            color_discrete_map={"Female": FEMALE_COLOR, "Male": MALE_COLOR},
-                           barmode="stack",
-                           title="Cluster vs True Label Overlap")
+                           barmode="stack", title="Cluster vs True Label Overlap")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
-
     with col2:
         fig = px.scatter(df, x="mean_spectral_centroid", y="mean_spectral_bandwidth",
                          color="cluster",
                          color_discrete_sequence=[FEMALE_COLOR, MALE_COLOR],
-                         opacity=0.7,
-                         title="Spectral Centroid vs Bandwidth (Clusters)")
+                         opacity=0.7, title="Spectral Centroid vs Bandwidth (Clusters)")
         st.plotly_chart(apply_theme(fig), use_container_width=True)
 
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
