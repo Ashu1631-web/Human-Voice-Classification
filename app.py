@@ -8,6 +8,9 @@ import os
 
 st.set_page_config(page_title="Human Clustering Classification", layout="wide", page_icon="👥")
 
+# ================= BASE DIR FIX (Streamlit Cloud ke liye) =================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ================= GLOBAL CSS =================
 st.markdown("""
 <style>
@@ -187,21 +190,33 @@ def login_page():
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-# ================= MODEL LOADING =================
+# ================= MODEL LOADING (FIXED) =================
 @st.cache_resource
 def load_models():
     try:
-        model  = pickle.load(open("model.pkl",  "rb"))
-        scaler = pickle.load(open("scaler.pkl", "rb"))
+        model_path  = os.path.join(BASE_DIR, "model.pkl")
+        scaler_path = os.path.join(BASE_DIR, "scaler.pkl")
+
+        if not os.path.exists(model_path):
+            st.error(f"❌ model.pkl nahi mila. Path: {model_path} | Files: {os.listdir(BASE_DIR)}")
+            return None, None
+        if not os.path.exists(scaler_path):
+            st.error(f"❌ scaler.pkl nahi mila. Path: {scaler_path} | Files: {os.listdir(BASE_DIR)}")
+            return None, None
+
+        model  = pickle.load(open(model_path,  "rb"))
+        scaler = pickle.load(open(scaler_path, "rb"))
         return model, scaler
-    except Exception:
+    except Exception as e:
+        st.error(f"❌ Model load error: {e}")
         return None, None
 
-# ================= DATA LOADING =================
+# ================= DATA LOADING (FIXED) =================
 @st.cache_data
 def load_data():
-    if os.path.exists("vocal_gender_features_new.csv"):
-        df = pd.read_csv("vocal_gender_features_new.csv")
+    csv_path = os.path.join(BASE_DIR, "vocal_gender_features_new.csv")
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
         if "label" in df.columns:
             unique_vals = df["label"].dropna().unique()
             str_vals = [str(v).strip().lower() for v in unique_vals]
@@ -331,7 +346,6 @@ def extract_features(filepath):
 
         # Wider pitch range — male low pitch (40 Hz) bhi pakde
         pitch = librosa.yin(y, fmin=40, fmax=400)
-        # Unvoiced frames (near-zero) hata do
         pitch_voiced = pitch[pitch > 40]
         if len(pitch_voiced) == 0:
             pitch_voiced = pitch
@@ -358,7 +372,6 @@ def extract_features(filepath):
 
 
 # ================= PREDICT HELPER =================
-# 60% se kam confidence = "Possibly" dikhao
 CONFIDENCE_THRESHOLD = 0.60
 
 def predict_and_display(filepath, model, scaler):
@@ -382,7 +395,6 @@ def predict_and_display(filepath, model, scaler):
         st.error(f"❌ Model prediction error: {e}")
         return
 
-    # --- Class index mapping ---
     classes = list(model.classes_)
     female_idx, male_idx = None, None
 
@@ -398,9 +410,9 @@ def predict_and_display(filepath, model, scaler):
             try:
                 val = int(c)
                 if val == 0:
-                    male_idx = i      # CSV: 0 = Male
+                    male_idx = i
                 elif val == 1:
-                    female_idx = i    # CSV: 1 = Female
+                    female_idx = i
             except (ValueError, TypeError):
                 pass
 
@@ -415,13 +427,11 @@ def predict_and_display(filepath, model, scaler):
     female_prob = float(proba[female_idx])
     male_prob   = float(proba[male_idx])
 
-    # --- Confidence threshold ---
     if female_prob >= CONFIDENCE_THRESHOLD:
         result, badge_cls = "Female 👩", "pred-female"
     elif male_prob >= CONFIDENCE_THRESHOLD:
         result, badge_cls = "Male 👨", "pred-male"
     else:
-        # Low confidence — raw prediction se decide karo lekin "Possibly" lagao
         if female_prob > male_prob:
             result, badge_cls = "Possibly Female 👩", "pred-unk"
         else:
@@ -440,7 +450,6 @@ def predict_and_display(filepath, model, scaler):
     </div>
     """, unsafe_allow_html=True)
 
-    # Debug info — pitch value dikhao
     mean_pitch_val = float(df_feat['mean_pitch'].iloc[0])
     pitch_note = ""
     if mean_pitch_val < 85:
@@ -564,7 +573,6 @@ def page_audio(model, scaler):
     if model is None:
         st.warning("⚠️ model.pkl / scaler.pkl not found. Place them in the project directory.")
 
-    # ffmpeg check
     import subprocess
     try:
         subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
